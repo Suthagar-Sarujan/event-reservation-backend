@@ -1,0 +1,179 @@
+-- Smart Event Ticket Reservation System
+-- Database schema (MySQL 8.0)
+--
+-- Dimension tables (venues, performers, events, listings) are seeded from the
+-- SeatGeek Events & Ticket Listings dataset (rebrowser/seatgeek-dataset on Kaggle)
+-- by scripts/import_seatgeek_data.py, but events/venues/performers can ALSO be
+-- created directly by organizers through the app (OrganizerController). To keep
+-- the two sources from ever colliding on primary keys, organizer-created rows
+-- use MySQL AUTO_INCREMENT seeded far above any id SeatGeek could plausibly
+-- assign (see the ALTER TABLE ... AUTO_INCREMENT statements below) - the import
+-- script inserts SeatGeek's real, much smaller ids explicitly and never touches
+-- the counter itself.
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+DROP TABLE IF EXISTS booking_items;
+DROP TABLE IF EXISTS bookings;
+DROP TABLE IF EXISTS listings;
+DROP TABLE IF EXISTS event_performers;
+DROP TABLE IF EXISTS events;
+DROP TABLE IF EXISTS performers;
+DROP TABLE IF EXISTS venues;
+DROP TABLE IF EXISTS users;
+
+-- ---------------------------------------------------------------------------
+-- Application-owned tables
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE users (
+    user_id        INT AUTO_INCREMENT PRIMARY KEY,
+    full_name       VARCHAR(150) NOT NULL,
+    email            VARCHAR(190) NOT NULL UNIQUE,
+    password_hash     VARCHAR(255) NOT NULL,
+    role               ENUM('customer','organizer','admin') NOT NULL DEFAULT 'customer',
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------------------
+-- Dimension tables - rows either imported from SeatGeek or created by an
+-- organizer (see created_by_user_id on events/venues/performers: NULL means
+-- SeatGeek-sourced, set means organizer-created).
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE venues (
+    venue_id            INT AUTO_INCREMENT PRIMARY KEY,
+    name                VARCHAR(255) NOT NULL,
+    slug                VARCHAR(255),
+    address_street      VARCHAR(255),
+    address_city        VARCHAR(120),
+    address_state       VARCHAR(50),
+    address_country     VARCHAR(80),
+    address_postal_code VARCHAR(20),
+    timezone            VARCHAR(60),
+    latitude            DECIMAL(9,6),
+    longitude           DECIMAL(9,6),
+    capacity            INT,                 -- 0/NULL means unknown in source data
+    popularity_score    DECIMAL(5,4),        -- SeatGeek 'score', 0-1 scale
+    popularity_count    INT,                 -- SeatGeek 'popularity', raw count
+    metro_code          INT,
+    created_by_user_id  INT NULL,            -- NULL = imported from SeatGeek
+    CONSTRAINT fk_venue_creator FOREIGN KEY (created_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE performers (
+    performer_id        INT AUTO_INCREMENT PRIMARY KEY,
+    name                VARCHAR(255) NOT NULL,
+    short_name          VARCHAR(150),
+    type                VARCHAR(50),
+    slug                VARCHAR(255),
+    taxonomy_name        VARCHAR(50),
+    taxonomy_sub_name    VARCHAR(50),
+    home_venue_id        INT,
+    score                DECIMAL(5,4),
+    popularity           INT,
+    is_event             TINYINT(1) DEFAULT 0,
+    division_name        VARCHAR(100),
+    division_short_name  VARCHAR(50),
+    created_by_user_id   INT NULL,           -- NULL = imported from SeatGeek
+    CONSTRAINT fk_performer_home_venue FOREIGN KEY (home_venue_id) REFERENCES venues(venue_id),
+    CONSTRAINT fk_performer_creator FOREIGN KEY (created_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE events (
+    event_id                BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name                     VARCHAR(500) NOT NULL,
+    short_name               VARCHAR(300),
+    type                     VARCHAR(50),
+    taxonomy_name             VARCHAR(50),
+    taxonomy_sub_name         VARCHAR(50),
+    venue_id                  INT NOT NULL,
+    datetime_utc               DATETIME NOT NULL,
+    end_datetime_utc            DATETIME,
+    date_tbd                   TINYINT(1) DEFAULT 0,
+    time_tbd                   TINYINT(1) DEFAULT 0,
+    status                     VARCHAR(30),
+    schedule_status             VARCHAR(50),
+    is_open                    TINYINT(1) DEFAULT 0,
+    is_ga                      TINYINT(1) DEFAULT 0,
+    seat_selection_enabled      TINYINT(1) DEFAULT 0,
+    url                        VARCHAR(500),
+    created_at_source            DATETIME,
+    announce_date                DATETIME,
+    created_by_user_id            INT NULL,   -- NULL = imported from SeatGeek, set = organizer-created
+    image_url                     VARCHAR(500), -- organizer-supplied event photo (they own the rights); SeatGeek-imported events have none
+    CONSTRAINT fk_event_venue FOREIGN KEY (venue_id) REFERENCES venues(venue_id),
+    CONSTRAINT fk_event_creator FOREIGN KEY (created_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL,
+    INDEX idx_events_datetime (datetime_utc),
+    INDEX idx_events_type (type),
+    INDEX idx_events_taxonomy (taxonomy_name, taxonomy_sub_name),
+    INDEX idx_events_creator (created_by_user_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE event_performers (
+    event_id      BIGINT NOT NULL,
+    performer_id  INT NOT NULL,
+    PRIMARY KEY (event_id, performer_id),
+    CONSTRAINT fk_ep_event FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE,
+    CONSTRAINT fk_ep_performer FOREIGN KEY (performer_id) REFERENCES performers(performer_id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE listings (
+    -- utf8mb4_bin: SeatGeek listing IDs are case-sensitive (e.g. "4vXcj9j2YnX" and
+    -- "4vXcj9j2YNX" are two different listings), so a case-insensitive collation
+    -- would silently collide distinct rows onto the same primary key. Organizer-
+    -- created listings get an app-generated "org-" prefixed id (see
+    -- OrganizerController) that can never collide with a SeatGeek listingId.
+    listing_id           VARCHAR(100) COLLATE utf8mb4_bin PRIMARY KEY,
+    event_id             BIGINT NOT NULL,
+    section               VARCHAR(50),
+    section_full           VARCHAR(150),
+    row_label              VARCHAR(20),
+    quantity               INT NOT NULL,
+    quantity_remaining      INT NOT NULL,
+    deal_bucket             TINYINT,          -- 0=Amazing .. 7=Other (SeatGeek deal-quality tier) - NULL for organizer listings
+    delivery_type           VARCHAR(30),
+    marketplace              VARCHAR(40),
+    split_type                VARCHAR(255),
+    in_hand_date               DATETIME,
+    unit_price                 DECIMAL(10,2) NOT NULL,  -- simulated for SeatGeek rows, real for organizer rows - see README
+    listing_status               ENUM('available','sold_out') NOT NULL DEFAULT 'available',
+    CONSTRAINT fk_listing_event FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE,
+    INDEX idx_listings_event (event_id),
+    INDEX idx_listings_price (unit_price)
+) ENGINE=InnoDB;
+
+CREATE TABLE bookings (
+    booking_id          INT AUTO_INCREMENT PRIMARY KEY,
+    booking_reference     VARCHAR(20) NOT NULL UNIQUE,
+    user_id                INT NOT NULL,
+    event_id                BIGINT NOT NULL,
+    status                    ENUM('confirmed','cancelled') NOT NULL DEFAULT 'confirmed',
+    total_amount               DECIMAL(10,2) NOT NULL,
+    created_at                   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_booking_user FOREIGN KEY (user_id) REFERENCES users(user_id),
+    CONSTRAINT fk_booking_event FOREIGN KEY (event_id) REFERENCES events(event_id),
+    INDEX idx_bookings_user (user_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE booking_items (
+    booking_item_id    INT AUTO_INCREMENT PRIMARY KEY,
+    booking_id           INT NOT NULL,
+    listing_id             VARCHAR(100) COLLATE utf8mb4_bin NOT NULL,
+    quantity                 INT NOT NULL,
+    unit_price                 DECIMAL(10,2) NOT NULL,
+    subtotal                     DECIMAL(10,2) NOT NULL,
+    CONSTRAINT fk_bi_booking FOREIGN KEY (booking_id) REFERENCES bookings(booking_id) ON DELETE CASCADE,
+    CONSTRAINT fk_bi_listing FOREIGN KEY (listing_id) REFERENCES listings(listing_id)
+) ENGINE=InnoDB;
+
+-- Reserve id space for organizer-created rows well above anything SeatGeek's
+-- sample data uses (observed max: events ~18.3M, venues ~467K, performers
+-- ~793K), so the import script's explicit SeatGeek ids never collide with
+-- ids MySQL auto-assigns to organizer-created rows.
+ALTER TABLE events AUTO_INCREMENT = 900000000;
+ALTER TABLE venues AUTO_INCREMENT = 5000000;
+ALTER TABLE performers AUTO_INCREMENT = 5000000;
+
+SET FOREIGN_KEY_CHECKS = 1;

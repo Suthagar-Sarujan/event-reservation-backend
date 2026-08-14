@@ -1,0 +1,6 @@
+pandas
+pyarrow
+sqlalchemy
+pymysql
+cryptography
+python-dotenv

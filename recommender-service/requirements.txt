@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pandas
+scikit-learn
+sqlalchemy
+pymysql
+cryptography
+python-dotenv
+pydantic
