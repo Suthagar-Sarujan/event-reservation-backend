@@ -15,6 +15,9 @@ public class AppDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<Booking> Bookings => Set<Booking>();
     public DbSet<BookingItem> BookingItems => Set<BookingItem>();
+    public DbSet<UserEventTicketCount> UserEventTicketCounts => Set<UserEventTicketCount>();
+    public DbSet<BookingRiskAssessment> BookingRiskAssessments => Set<BookingRiskAssessment>();
+    public DbSet<UserPreference> UserPreferences => Set<UserPreference>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -139,6 +142,10 @@ public class AppDbContext : DbContext
                 .HasConversion(
                     v => v == UserRole.Admin ? "admin" : v == UserRole.Organizer ? "organizer" : "customer",
                     v => v == "admin" ? UserRole.Admin : v == "organizer" ? UserRole.Organizer : UserRole.Customer);
+            e.Property(u => u.ThemePreference).HasColumnName("theme_preference")
+                .HasConversion(
+                    v => v == ThemePreference.Light ? "light" : v == ThemePreference.Dark ? "dark" : "system",
+                    v => v == "light" ? ThemePreference.Light : v == "dark" ? ThemePreference.Dark : ThemePreference.System);
             e.Property(u => u.CreatedAt).HasColumnName("created_at");
         });
 
@@ -156,6 +163,8 @@ public class AppDbContext : DbContext
                                v => v == "confirmed" ? BookingStatus.Confirmed : BookingStatus.Cancelled);
             e.Property(b => b.TotalAmount).HasColumnName("total_amount");
             e.Property(b => b.CreatedAt).HasColumnName("created_at");
+            e.Property(b => b.PaymentReference).HasColumnName("payment_reference").HasMaxLength(20);
+            e.Property(b => b.CheckedInAt).HasColumnName("checked_in_at");
             e.HasOne(b => b.User).WithMany(u => u.Bookings).HasForeignKey(b => b.UserId);
             e.HasOne(b => b.Event).WithMany().HasForeignKey(b => b.EventId);
         });
@@ -172,6 +181,61 @@ public class AppDbContext : DbContext
             e.Property(bi => bi.Subtotal).HasColumnName("subtotal");
             e.HasOne(bi => bi.Booking).WithMany(b => b.Items).HasForeignKey(bi => bi.BookingId);
             e.HasOne(bi => bi.Listing).WithMany().HasForeignKey(bi => bi.ListingId);
+        });
+
+        modelBuilder.Entity<UserEventTicketCount>(e =>
+        {
+            e.ToTable("user_event_ticket_counts");
+            e.HasKey(x => new { x.UserId, x.EventId });
+            e.Property(x => x.UserId).HasColumnName("user_id");
+            e.Property(x => x.EventId).HasColumnName("event_id");
+            e.Property(x => x.TicketsBooked).HasColumnName("tickets_booked");
+            e.Property(x => x.UpdatedAt).HasColumnName("updated_at")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP(6)").ValueGeneratedOnAddOrUpdate();
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Event>().WithMany().HasForeignKey(x => x.EventId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<BookingRiskAssessment>(e =>
+        {
+            e.ToTable("booking_risk_assessments");
+            e.HasKey(x => x.BookingRiskId);
+            e.Property(x => x.BookingRiskId).HasColumnName("booking_risk_id");
+            e.Property(x => x.UserId).HasColumnName("user_id");
+            e.Property(x => x.EventId).HasColumnName("event_id");
+            e.Property(x => x.BookingId).HasColumnName("booking_id");
+            e.Property(x => x.IpAddress).HasColumnName("ip_address").HasMaxLength(45);
+            e.Property(x => x.RequestedQuantity).HasColumnName("requested_quantity");
+            e.Property(x => x.RiskScore).HasColumnName("risk_score");
+            e.Property(x => x.RiskLevel).HasColumnName("risk_level")
+                .HasConversion(
+                    v => v == RiskLevel.Low ? "low" : v == RiskLevel.Medium ? "medium" : "high",
+                    v => v == "low" ? RiskLevel.Low : v == "medium" ? RiskLevel.Medium : RiskLevel.High);
+            e.Property(x => x.Decision).HasColumnName("decision")
+                .HasConversion(
+                    v => v == RiskDecision.Allowed ? "allowed" : v == RiskDecision.Flagged ? "flagged" : "blocked",
+                    v => v == "allowed" ? RiskDecision.Allowed : v == "flagged" ? RiskDecision.Flagged : RiskDecision.Blocked);
+            e.Property(x => x.Reasons).HasColumnName("reasons").HasMaxLength(500);
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Event).WithMany().HasForeignKey(x => x.EventId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Booking).WithMany().HasForeignKey(x => x.BookingId).OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(x => x.IpAddress);
+            e.HasIndex(x => x.CreatedAt);
+        });
+
+        modelBuilder.Entity<UserPreference>(e =>
+        {
+            e.ToTable("user_preferences");
+            e.HasKey(x => x.UserId);
+            e.Property(x => x.UserId).HasColumnName("user_id").ValueGeneratedNever();
+            e.Property(x => x.EventTypes).HasColumnName("event_types").HasMaxLength(255).IsRequired();
+            e.Property(x => x.MusicGenres).HasColumnName("music_genres").HasMaxLength(255).IsRequired();
+            e.Property(x => x.Atmosphere).HasColumnName("atmosphere").HasMaxLength(50);
+            e.Property(x => x.AttendanceFrequency).HasColumnName("attendance_frequency").HasMaxLength(50);
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
+            e.HasOne(x => x.User).WithOne().HasForeignKey<UserPreference>(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

@@ -2,6 +2,7 @@ fastapi
 uvicorn[standard]
 pandas
 scikit-learn
+joblib
 sqlalchemy
 pymysql
 cryptography

@@ -16,6 +16,16 @@ public class Booking
     public decimal TotalAmount { get; set; }
     public DateTime CreatedAt { get; set; }
 
+    // Mock payment confirmation id (e.g. "PAY-XXXXXXXX") - no real gateway is
+    // integrated, see README/proposal Limitations; this exists purely so the
+    // simulated payment step has something concrete to show the customer.
+    public string? PaymentReference { get; set; }
+
+    // Set the first time a ticket is scanned/verified at the door (see
+    // TicketVerificationService). Null means not yet checked in. A second
+    // verification attempt is rejected rather than silently re-approved.
+    public DateTime? CheckedInAt { get; set; }
+
     public User? User { get; set; }
     public Event? Event { get; set; }
     public ICollection<BookingItem> Items { get; set; } = new List<BookingItem>();

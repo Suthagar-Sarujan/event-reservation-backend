@@ -19,6 +19,8 @@ that produced the ranking.
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
@@ -34,6 +36,23 @@ def _minmax(series: pd.Series) -> pd.Series:
 
 class ContentBasedRecommender:
     PERFORMER_WEIGHT = 2.0  # a shared performer is the strongest similarity signal
+
+    # Additive boosts applied on top of cosine similarity when a candidate
+    # matches a label from the user's onboarding questionnaire (see
+    # UserPreference on the backend) - a genre match ("Rock") is a stronger,
+    # more specific signal than a broad event-type match ("Music Concerts").
+    GENRE_MATCH_BOOST = 0.35
+    TYPE_MATCH_BOOST = 0.15
+
+    # Cold-start blend (no booking history yet, only stated preferences):
+    # weighted toward matching the user's stated interest, but never fully
+    # excludes non-matches - popularity still contributes, so a ranked list
+    # naturally fills in with other trending events once matches run out,
+    # giving "high priority to Rock, but also other music" rather than an
+    # exact-match-only filter.
+    PREFERENCE_MATCH_WEIGHT = 0.7
+    PREFERENCE_TREND_WEIGHT = 0.3
+    PREFERENCE_TYPE_ONLY_SCORE = 0.6
 
     def __init__(self) -> None:
         self.feature_df: pd.DataFrame | None = None
@@ -129,7 +148,37 @@ class ContentBasedRecommender:
             return f"{lead_in} it's a similar category ({to_row['taxonomy_sub_name']})."
         return f"{lead_in} its overall profile (type, venue and performer mix) is close to what you're looking at."
 
-    def _reason_for_profile(self, booked_event_ids: list[int], candidate_id: int) -> str:
+    def _match_term(self, event_id: int, terms: list[str] | None) -> str | None:
+        """Word-boundary match of any preference label against an event's
+        type/taxonomy/name fields. A multi-word label like "Music Concerts"
+        rarely appears verbatim (taxonomy splits "music" and "concert" across
+        separate columns), so each label is also tried word-by-word - but
+        matched on a word boundary (\\bhip\\b, not a raw substring) so a short
+        word like "hip" can't false-positive inside an unrelated word like
+        "championship". Returns the first matching label (original casing,
+        for display) or None."""
+        if not terms or event_id not in self.meta.index:
+            return None
+        row = self.meta.loc[event_id]
+        haystack = " ".join(
+            str(row.get(field, "") or "") for field in ("type", "taxonomy_name", "taxonomy_sub_name", "name")
+        ).lower()
+        for term in terms:
+            term_lower = term.lower()
+            if re.search(rf"\b{re.escape(term_lower)}\b", haystack):
+                return term
+            words = [w for w in re.split(r"[\s-]+", term_lower) if len(w) >= 3]
+            if any(re.search(rf"\b{re.escape(w)}\b", haystack) for w in words):
+                return term
+        return None
+
+    def _reason_for_profile(
+        self,
+        booked_event_ids: list[int],
+        candidate_id: int,
+        genre_term: str | None = None,
+        type_term: str | None = None,
+    ) -> str:
         booked_performers: set[int] = set()
         booked_types: dict[str, int] = {}
         booked_venue_ids: set[int] = set()
@@ -147,10 +196,17 @@ class ContentBasedRecommender:
             name = self.performer_names.get(next(iter(shared_performers)), "a performer you've booked")
             return f"Recommended because you've booked {name} before."
 
+        if genre_term:
+            return f"Recommended because you selected {genre_term} in your interests."
+
         candidate_row = self.meta.loc[candidate_id]
         top_type = max(booked_types, key=booked_types.get) if booked_types else None
         if top_type and candidate_row["type"] == top_type:
             return f"Recommended because you often book {top_type.upper()} events."
+
+        if type_term:
+            return f"Recommended because you're interested in {type_term} events."
+
         if candidate_row["venue_id"] in booked_venue_ids:
             return f"Recommended because you've booked events at {candidate_row['name_venue']} before."
         return "Recommended based on the type, venue and performer mix of events you've booked."
@@ -179,31 +235,85 @@ class ContentBasedRecommender:
             for eid, score in ranked
         ]
 
-    def recommend_for_user(self, booked_event_ids: list[int], top_n: int = 10) -> list[dict]:
-        known_booked = [eid for eid in booked_event_ids if eid in self.feature_df.index]
-        if not known_booked:
-            return self.popular(top_n, exclude=set(booked_event_ids))
-
-        profile_vector = self.feature_df.loc[known_booked].mean(axis=0).values.reshape(1, -1)
-        scores = cosine_similarity(profile_vector, self.feature_df.values)[0]
+    def recommend_for_user(
+        self,
+        booked_event_ids: list[int],
+        preferred_event_types: list[str] | None = None,
+        preferred_genres: list[str] | None = None,
+        top_n: int = 10,
+    ) -> list[dict]:
         excluded = set(booked_event_ids)
-        ranked = sorted(
-            (
-                (eid, score)
-                for eid, score in zip(self.event_order, scores)
-                if eid not in excluded and eid in self.bookable_event_ids
-            ),
-            key=lambda pair: pair[1],
-            reverse=True,
-        )[:top_n]
+        known_booked = [eid for eid in booked_event_ids if eid in self.feature_df.index]
+
+        if not known_booked:
+            if preferred_event_types or preferred_genres:
+                return self._recommend_from_preferences(preferred_event_types or [], preferred_genres or [], top_n, exclude=excluded)
+            return self.popular(top_n, exclude=excluded)
+
+        # Existing booking history is the strongest personalization signal
+        # (real behavior), but stated preferences still nudge the ranking -
+        # see GENRE_MATCH_BOOST/TYPE_MATCH_BOOST.
+        profile_vector = self.feature_df.loc[known_booked].mean(axis=0).values.reshape(1, -1)
+        base_scores = cosine_similarity(profile_vector, self.feature_df.values)[0]
+
+        candidates = []
+        for eid, base_score in zip(self.event_order, base_scores):
+            if eid in excluded or eid not in self.bookable_event_ids:
+                continue
+            genre_term = self._match_term(eid, preferred_genres)
+            type_term = self._match_term(eid, preferred_event_types)
+            boost = (self.GENRE_MATCH_BOOST if genre_term else 0.0) + (self.TYPE_MATCH_BOOST if type_term else 0.0)
+            candidates.append((eid, float(base_score) + boost, genre_term, type_term))
+
+        ranked = sorted(candidates, key=lambda c: c[1], reverse=True)[:top_n]
         return [
             {
                 "event_id": int(eid),
-                "score": round(float(score), 4),
-                "reason": self._reason_for_profile(known_booked, eid),
+                "score": round(final_score, 4),
+                "reason": self._reason_for_profile(known_booked, eid, genre_term, type_term),
             }
-            for eid, score in ranked
+            for eid, final_score, genre_term, type_term in ranked
         ]
+
+    def _recommend_from_preferences(
+        self,
+        preferred_event_types: list[str],
+        preferred_genres: list[str],
+        top_n: int,
+        exclude: set[int] | None = None,
+    ) -> list[dict]:
+        """Cold-start ranking for a user with an onboarding profile but no
+        booking history yet. Blends preference match strength with overall
+        popularity so the list leads with the user's stated interest (e.g.
+        Rock) while still surfacing other matching/trending events for
+        diversity, rather than a hard filter down to one exact genre."""
+        exclude = exclude or set()
+        candidates = self.meta.loc[list(self.bookable_event_ids - exclude)].copy()
+        if candidates.empty:
+            return []
+        candidates["venue_pop_norm"] = _minmax(candidates["popularity_score"].fillna(0))
+        candidates["perf_pop_norm"] = _minmax(candidates["performer_avg_popularity"])
+        candidates["trend_score"] = 0.6 * candidates["venue_pop_norm"] + 0.4 * candidates["perf_pop_norm"]
+
+        scored = []
+        for eid, row in candidates.iterrows():
+            genre_term = self._match_term(eid, preferred_genres)
+            type_term = self._match_term(eid, preferred_event_types)
+            match_score = 1.0 if genre_term else (self.PREFERENCE_TYPE_ONLY_SCORE if type_term else 0.0)
+            final_score = self.PREFERENCE_MATCH_WEIGHT * match_score + self.PREFERENCE_TREND_WEIGHT * float(row["trend_score"])
+            scored.append((eid, final_score, genre_term, type_term))
+
+        ranked = sorted(scored, key=lambda c: c[1], reverse=True)[:top_n]
+        items = []
+        for eid, final_score, genre_term, type_term in ranked:
+            if genre_term:
+                reason = f"Recommended because you selected {genre_term} in your interests."
+            elif type_term:
+                reason = f"Recommended because you're interested in {type_term} events."
+            else:
+                reason = "Popular pick - trending among other attendees while we learn more about your taste."
+            items.append({"event_id": int(eid), "score": round(final_score, 4), "reason": reason})
+        return items
 
     def popular(self, top_n: int = 10, exclude: set[int] | None = None) -> list[dict]:
         exclude = exclude or set()

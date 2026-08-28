@@ -2,6 +2,8 @@ using System.ComponentModel.DataAnnotations;
 
 namespace EventReservation.Api.DTOs;
 
+public record VenueOptionDto(int VenueId, string Name, string? AddressCity, string? AddressState);
+
 public record CreateVenueRequest(
     [Required, StringLength(255, MinimumLength = 2)] string Name,
     string? AddressStreet,

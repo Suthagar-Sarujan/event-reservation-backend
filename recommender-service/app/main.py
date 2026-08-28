@@ -4,8 +4,15 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import load_dataset
+from .demand import DemandModel
 from .recommender import ContentBasedRecommender
-from .schemas import RecommendationResponse, UserRecommendationRequest
+from .schemas import (
+    DemandModelInfo,
+    DemandPrediction,
+    DemandPredictionListRequest,
+    RecommendationResponse,
+    UserRecommendationRequest,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("recommender")
@@ -29,11 +36,13 @@ app.add_middleware(
 )
 
 recommender = ContentBasedRecommender()
+demand_model = DemandModel()
 
 
 @app.on_event("startup")
 def startup() -> None:
     _refresh()
+    _refresh_demand(force=False)
 
 
 def _refresh() -> None:
@@ -45,6 +54,13 @@ def _refresh() -> None:
         len(recommender.feature_df),
         len(recommender.bookable_event_ids),
     )
+
+
+def _refresh_demand(force: bool) -> None:
+    data = load_dataset()
+    demand_model.fit(data, force=force)
+    meta = demand_model.metadata()
+    logger.info("Demand model ready: mode=%s, training_rows=%d", meta["mode"], meta["training_row_count"])
 
 
 @app.get("/health")
@@ -60,6 +76,11 @@ def health():
 @app.post("/admin/refresh")
 def refresh():
     _refresh()
+    # Rebuilds demand features (new/edited events, latest booking counts)
+    # without retraining the model's learned weights - see DemandModel.fit,
+    # which only retrains when force=True. Cheap enough to run on every
+    # catalog change; the actual training pass stays an explicit action.
+    _refresh_demand(force=False)
     return {"status": "refreshed", "events_indexed": len(recommender.feature_df)}
 
 
@@ -67,8 +88,14 @@ def refresh():
 def recommend_for_user(request: UserRecommendationRequest):
     if recommender.feature_df is None:
         raise HTTPException(status_code=503, detail="Recommender not ready")
-    items = recommender.recommend_for_user(request.booked_event_ids, top_n=request.top_n)
-    return RecommendationResponse(items=items, personalized=bool(request.booked_event_ids))
+    items = recommender.recommend_for_user(
+        request.booked_event_ids,
+        preferred_event_types=request.preferred_event_types,
+        preferred_genres=request.preferred_genres,
+        top_n=request.top_n,
+    )
+    personalized = bool(request.booked_event_ids or request.preferred_event_types or request.preferred_genres)
+    return RecommendationResponse(items=items, personalized=personalized)
 
 
 @app.get("/recommendations/similar/{event_id}", response_model=RecommendationResponse)
@@ -87,3 +114,32 @@ def popular(top_n: int = 10):
         raise HTTPException(status_code=503, detail="Recommender not ready")
     items = recommender.popular(top_n=top_n)
     return RecommendationResponse(items=items, personalized=False)
+
+
+@app.post("/demand/predict", response_model=list[DemandPrediction])
+def predict_demand(request: DemandPredictionListRequest):
+    if demand_model.features is None:
+        raise HTTPException(status_code=503, detail="Demand model not ready")
+    return demand_model.predict_many(event_ids=request.event_ids, only_upcoming=request.only_upcoming)
+
+
+@app.get("/demand/predict/{event_id}", response_model=DemandPrediction)
+def predict_demand_for_event(event_id: int):
+    if demand_model.features is None:
+        raise HTTPException(status_code=503, detail="Demand model not ready")
+    prediction = demand_model.predict(event_id)
+    if prediction is None:
+        raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
+    return prediction
+
+
+@app.get("/demand/model-info", response_model=DemandModelInfo)
+def demand_model_info():
+    return demand_model.metadata()
+
+
+@app.post("/demand/retrain", response_model=DemandModelInfo)
+def retrain_demand():
+    logger.info("Retraining demand model on request...")
+    _refresh_demand(force=True)
+    return demand_model.metadata()

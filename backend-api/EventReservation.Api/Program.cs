@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 using EventReservation.Api.Data;
+using EventReservation.Api.Repositories;
 using EventReservation.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -24,7 +25,39 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 builder.Services.AddScoped<JwtTokenService>();
 
-builder.Services.AddHttpClient<RecommenderClient>(client =>
+builder.Services.Configure<FraudOptions>(builder.Configuration.GetSection("Fraud"));
+
+// Data access layer
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<IEventRepository, EventRepository>();
+builder.Services.AddScoped<IVenueRepository, VenueRepository>();
+builder.Services.AddScoped<IListingRepository, ListingRepository>();
+builder.Services.AddScoped<IBookingRepository, BookingRepository>();
+builder.Services.AddScoped<IFraudRepository, FraudRepository>();
+builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>();
+
+// Business logic layer
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IEventService, EventService>();
+builder.Services.AddScoped<IBookingService, BookingService>();
+builder.Services.AddScoped<IOrganizerService, OrganizerService>();
+builder.Services.AddScoped<IAdminService, AdminService>();
+builder.Services.AddScoped<IRecommendationService, RecommendationService>();
+builder.Services.AddScoped<IFraudDetectionService, FraudDetectionService>();
+builder.Services.AddScoped<IUserPreferenceService, UserPreferenceService>();
+builder.Services.AddScoped<IDemandPredictionService, DemandPredictionService>();
+builder.Services.AddSingleton<IQrCodeService, QrCodeService>();
+
+builder.Services.AddHttpClient<IRecommenderClient, RecommenderClient>(client =>
+{
+    var baseUrl = builder.Configuration["RecommenderService:BaseUrl"] ?? "http://127.0.0.1:8000";
+    client.BaseAddress = new Uri(baseUrl);
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+
+// Demand prediction lives in the same Python service as the recommender
+// (see recommender-service/app/demand.py) - same base URL, separate routes.
+builder.Services.AddHttpClient<IDemandClient, DemandClient>(client =>
 {
     var baseUrl = builder.Configuration["RecommenderService:BaseUrl"] ?? "http://127.0.0.1:8000";
     client.BaseAddress = new Uri(baseUrl);

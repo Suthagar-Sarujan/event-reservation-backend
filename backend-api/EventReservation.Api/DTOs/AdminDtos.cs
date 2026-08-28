@@ -43,3 +43,5 @@ public record AdminBookingDto(
     string Status,
     DateTime CreatedAt
 );
+
+public record TrendPointDto(DateTime Date, int Bookings, decimal Revenue);

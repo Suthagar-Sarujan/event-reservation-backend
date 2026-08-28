@@ -14,6 +14,9 @@
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS booking_risk_assessments;
+DROP TABLE IF EXISTS user_event_ticket_counts;
+DROP TABLE IF EXISTS user_preferences;
 DROP TABLE IF EXISTS booking_items;
 DROP TABLE IF EXISTS bookings;
 DROP TABLE IF EXISTS listings;
@@ -33,6 +36,7 @@ CREATE TABLE users (
     email            VARCHAR(190) NOT NULL UNIQUE,
     password_hash     VARCHAR(255) NOT NULL,
     role               ENUM('customer','organizer','admin') NOT NULL DEFAULT 'customer',
+    theme_preference   ENUM('light','dark','system') NOT NULL DEFAULT 'system',
     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
@@ -102,7 +106,7 @@ CREATE TABLE events (
     created_at_source            DATETIME,
     announce_date                DATETIME,
     created_by_user_id            INT NULL,   -- NULL = imported from SeatGeek, set = organizer-created
-    image_url                     VARCHAR(500), -- organizer-supplied event photo (they own the rights); SeatGeek-imported events have none
+    image_url                     VARCHAR(500), -- organizer-supplied event photo (they own the rights) - SeatGeek-imported events have none
     CONSTRAINT fk_event_venue FOREIGN KEY (venue_id) REFERENCES venues(venue_id),
     CONSTRAINT fk_event_creator FOREIGN KEY (created_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL,
     INDEX idx_events_datetime (datetime_utc),
@@ -152,6 +156,8 @@ CREATE TABLE bookings (
     status                    ENUM('confirmed','cancelled') NOT NULL DEFAULT 'confirmed',
     total_amount               DECIMAL(10,2) NOT NULL,
     created_at                   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    payment_reference             VARCHAR(20) NULL,  -- mock payment confirmation id, no real gateway is integrated
+    checked_in_at                   DATETIME NULL,   -- set once, at the door, by TicketVerificationController
     CONSTRAINT fk_booking_user FOREIGN KEY (user_id) REFERENCES users(user_id),
     CONSTRAINT fk_booking_event FOREIGN KEY (event_id) REFERENCES events(event_id),
     INDEX idx_bookings_user (user_id)
@@ -166,6 +172,70 @@ CREATE TABLE booking_items (
     subtotal                     DECIMAL(10,2) NOT NULL,
     CONSTRAINT fk_bi_booking FOREIGN KEY (booking_id) REFERENCES bookings(booking_id) ON DELETE CASCADE,
     CONSTRAINT fk_bi_listing FOREIGN KEY (listing_id) REFERENCES listings(listing_id)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------------------
+-- Recommendation personalization (app-owned)
+-- ---------------------------------------------------------------------------
+
+-- One row per customer, captured by the onboarding questionnaire and editable
+-- afterward. event_types/music_genres are comma-joined free-form labels from
+-- a small fixed frontend option set (same convention as
+-- booking_risk_assessments.reasons) - matched as case-insensitive, word-
+-- boundary substrings against events.type/taxonomy_name/taxonomy_sub_name/name
+-- by the recommender service (see recommender-service/app/recommender.py).
+CREATE TABLE user_preferences (
+    user_id               INT PRIMARY KEY,
+    event_types           VARCHAR(255) NOT NULL DEFAULT '',
+    music_genres          VARCHAR(255) NOT NULL DEFAULT '',
+    atmosphere            VARCHAR(50) NULL,
+    attendance_frequency  VARCHAR(50) NULL,
+    created_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_up_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------------------
+-- Fraud / booking-abuse prevention (app-owned)
+-- ---------------------------------------------------------------------------
+
+-- Atomic per-(user, event) ticket counter enforcing the "max N tickets per
+-- account per event" cap race-condition-free - see BookingRepository.CreateAsync,
+-- which locks and increments this row inside the same transaction as the
+-- listing inventory decrement.
+CREATE TABLE user_event_ticket_counts (
+    user_id         INT NOT NULL,
+    event_id        BIGINT NOT NULL,
+    tickets_booked  INT NOT NULL DEFAULT 0,
+    updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, event_id),
+    CONSTRAINT fk_uetc_user  FOREIGN KEY (user_id)  REFERENCES users(user_id)   ON DELETE CASCADE,
+    CONSTRAINT fk_uetc_event FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- One row per booking attempt that was risk-evaluated (allowed, flagged, or
+-- blocked) - covers both a "BookingRisk" and "FraudDetectionLog" role in one
+-- table since they describe the same event. ip_address is for fraud/security
+-- review only, never exposed to the customer-facing API.
+CREATE TABLE booking_risk_assessments (
+    booking_risk_id     BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id             INT NOT NULL,
+    event_id            BIGINT NOT NULL,
+    booking_id          INT NULL,            -- NULL when blocked before a booking row ever existed
+    ip_address          VARCHAR(45) NULL,
+    requested_quantity  INT NOT NULL,
+    risk_score          INT NOT NULL,
+    risk_level          ENUM('low','medium','high') NOT NULL,
+    decision            ENUM('allowed','flagged','blocked') NOT NULL,
+    reasons             VARCHAR(500) NOT NULL,
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_bra_user    FOREIGN KEY (user_id)    REFERENCES users(user_id)    ON DELETE CASCADE,
+    CONSTRAINT fk_bra_event   FOREIGN KEY (event_id)   REFERENCES events(event_id)  ON DELETE CASCADE,
+    CONSTRAINT fk_bra_booking FOREIGN KEY (booking_id) REFERENCES bookings(booking_id) ON DELETE SET NULL,
+    INDEX idx_bra_user (user_id),
+    INDEX idx_bra_event (event_id),
+    INDEX idx_bra_ip (ip_address),
+    INDEX idx_bra_created (created_at)
 ) ENGINE=InnoDB;
 
 -- Reserve id space for organizer-created rows well above anything SeatGeek's

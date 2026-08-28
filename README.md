@@ -30,23 +30,53 @@ deployable/retrainable, as intended by the original design.
 ## Roles
 
 Three roles share the same `users` table (`role` column: `customer` |
-`organizer` | `admin`), enforced with `[Authorize(Roles = ...)]` on the
-backend and route guards (`authGuard` / `organizerGuard` / `adminGuard`) on
-the frontend:
+`organizer` | `admin`). **Access is strictly separated, not hierarchical** -
+Admin is not "Organizer plus more" and Organizer is not "Customer plus more".
+Each role sees exactly one panel and nothing from the other two:
 
-- **Customer** (default on registration): browse, get recommendations, book
-  tickets, view booking history.
-- **Organizer**: everything a customer can do, plus a dashboard to create
-  their own events (with a new or existing venue, an optional performer/act,
-  and one or more ticket listings), edit event details, add/adjust listings,
-  and see who booked what. Organizer-created events appear in the normal
-  browse/search/recommendation surfaces right alongside the SeatGeek-imported
-  ones - `events.created_by_user_id` is the only thing that distinguishes them
-  (`NULL` = imported, set = organizer-created). Real prices set by organizers,
+- **Customer**: browse, get recommendations, book tickets, view booking
+  history - via `/dashboard` and `/my-bookings`, both rendered in the same
+  sidebar shell component Organizer/Admin use (`variant: 'customer'` in
+  `app.routes.ts`), so all three roles get equivalent-feeling panels even
+  though the content differs.
+- **Organizer**: a dashboard (`/organizer`) to create their own events (new or
+  existing venue, an optional performer/act, one or more ticket listings),
+  edit those events' core details, add/adjust listings, and see who booked
+  what - scoped to events they created (`events.created_by_user_id = their
+  id`). Cannot browse or book as a customer; cannot see Admin's tools.
+  Organizer-created events still appear in the normal public browse/search/
+  recommendation surfaces alongside SeatGeek-imported ones -
+  `created_by_user_id` (`NULL` = imported, set = organizer-created) is the
+  only thing that distinguishes them there. Real prices set by organizers,
   unlike the simulated SeatGeek listing prices described below.
-- **Admin**: platform oversight - promote/demote any user's role, view every
-  event regardless of who created it (and cancel one if needed), and view
-  every booking platform-wide, plus a stats dashboard.
+- **Admin**: platform oversight only (`/admin`) - promote/demote any user's
+  role, view/cancel every event regardless of creator, edit core details
+  (name/date/status/image) on *any* event including SeatGeek-imported ones -
+  wider reach than Organizer's own-events-only edit, but still limited to
+  those four fields, not venue/performer/listing data - and view every
+  booking platform-wide, plus a stats dashboard. Cannot browse/book, and
+  has no access to Organizer's event-creation tools.
+
+Enforced on both ends, matching the same strict rule:
+- **Backend**: `[Authorize(Roles = "Organizer")]` / `[Authorize(Roles =
+  "Admin")]` on `OrganizerController`/`AdminController` - deliberately *not*
+  `"Organizer,Admin"`, which would let Admin into Organizer's endpoints too.
+- **Frontend**: `AuthService.isOrganizer`/`isAdmin` are exact role-string
+  matches (`role === 'Organizer'`), never combined with OR into each other;
+  `isStaff` (`isOrganizer() || isAdmin()`) exists only to hide
+  customer-facing nav (Browse, Dashboard, My Bookings) from both back-office
+  roles, never to grant one role the other's access. Route guards
+  (`organizerGuard`, `adminGuard`, `customerGuard`) mirror this: a customer
+  hitting `/organizer` or `/admin` is bounced to `/login` or `/`; an
+  Organizer or Admin hitting `/dashboard` or `/my-bookings` is redirected to
+  their *own* panel (`/organizer` or `/admin`) rather than shown the
+  customer view.
+
+This was a real bug caught mid-project: an early version computed
+`isOrganizer` as `role === 'Organizer' || role === 'Admin'` (treating Admin
+as a superset), which leaked an "Organizer Panel" link into the Admin's own
+dropdown menu. The fix was to make every one of these checks an exact,
+single-role match with no fallthrough - the rule above, not an exception.
 
 **There is no self-service organizer signup.** Everyone registers as a
 customer; an admin promotes a user to organizer (or admin) from

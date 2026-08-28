@@ -18,5 +18,42 @@ public record BookingResponseDto(
     string Status,
     decimal TotalAmount,
     DateTime CreatedAt,
+    IReadOnlyList<BookingItemDto> Items,
+    string? PaymentReference,
+    DateTime? CheckedInAt
+);
+
+public record TicketDto(
+    int BookingId,
+    string BookingReference,
+    string Status,
+    long EventId,
+    string EventName,
+    DateTime EventDatetimeUtc,
+    string VenueName,
+    string? VenueCity,
+    string? VenueState,
+    int TotalQuantity,
+    decimal TotalAmount,
+    string? PaymentReference,
+    DateTime? CheckedInAt,
+    string QrCodeDataUri,
     IReadOnlyList<BookingItemDto> Items
+);
+
+public record VerifyTicketRequest([Required] string Code);
+
+public record VerifyTicketResultDto(
+    bool Found,
+    bool SignatureValid,
+    string? BookingReference,
+    string? EventName,
+    DateTime? EventDatetimeUtc,
+    string? AttendeeName,
+    string? AttendeeEmail,
+    int? TotalQuantity,
+    string? Status,
+    bool AlreadyCheckedIn,
+    DateTime? CheckedInAt,
+    string Message
 );

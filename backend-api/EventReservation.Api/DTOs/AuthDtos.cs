@@ -13,4 +13,8 @@ public record LoginRequest(
     [Required] string Password
 );
 
-public record AuthResponse(string Token, int UserId, string FullName, string Email, string Role);
+public record AuthResponse(string Token, int UserId, string FullName, string Email, string Role, string Theme, bool HasPreferences);
+
+public record UpdateThemeRequest([Required] string Theme);
+
+public record ThemeResponse(string Theme);

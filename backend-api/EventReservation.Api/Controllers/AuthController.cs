@@ -1,9 +1,8 @@
-using EventReservation.Api.Data;
-using EventReservation.Api.Data.Entities;
+using System.IdentityModel.Tokens.Jwt;
 using EventReservation.Api.DTOs;
 using EventReservation.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace EventReservation.Api.Controllers;
 
@@ -11,50 +10,50 @@ namespace EventReservation.Api.Controllers;
 [Route("api/auth")]
 public class AuthController : ControllerBase
 {
-    private readonly AppDbContext _db;
-    private readonly JwtTokenService _jwt;
+    private readonly IAuthService _auth;
 
-    public AuthController(AppDbContext db, JwtTokenService jwt)
+    public AuthController(IAuthService auth)
     {
-        _db = db;
-        _jwt = jwt;
+        _auth = auth;
     }
+
+    private int CurrentUserId => int.Parse(User.FindFirst(JwtRegisteredClaimNames.Sub)!.Value);
 
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request)
     {
-        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
-        if (await _db.Users.AnyAsync(u => u.Email == normalizedEmail))
+        var result = await _auth.RegisterAsync(request);
+        return result.Status switch
         {
-            return Conflict(new { message = "An account with this email already exists." });
-        }
-
-        var user = new User
-        {
-            FullName = request.FullName.Trim(),
-            Email = normalizedEmail,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
-            Role = UserRole.Customer,
-            CreatedAt = DateTime.UtcNow,
+            AuthStatus.EmailAlreadyExists => Conflict(new { message = "An account with this email already exists." }),
+            _ => Ok(result.Response),
         };
-        _db.Users.Add(user);
-        await _db.SaveChangesAsync();
-
-        var token = _jwt.GenerateToken(user);
-        return Ok(new AuthResponse(token, user.UserId, user.FullName, user.Email, user.Role.ToString()));
     }
 
     [HttpPost("login")]
     public async Task<ActionResult<AuthResponse>> Login(LoginRequest request)
     {
-        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
-        var user = await _db.Users.FirstOrDefaultAsync(u => u.Email == normalizedEmail);
-        if (user is null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+        var result = await _auth.LoginAsync(request);
+        return result.Status switch
         {
-            return Unauthorized(new { message = "Invalid email or password." });
-        }
+            AuthStatus.InvalidCredentials => Unauthorized(new { message = "Invalid email or password." }),
+            _ => Ok(result.Response),
+        };
+    }
 
-        var token = _jwt.GenerateToken(user);
-        return Ok(new AuthResponse(token, user.UserId, user.FullName, user.Email, user.Role.ToString()));
+    // Theme is a per-account preference (not tied to any role), so any
+    // authenticated user can update their own - stored server-side so it
+    // follows them across devices/browsers, not just the current one.
+    [HttpPatch("theme")]
+    [Authorize]
+    public async Task<ActionResult<ThemeResponse>> UpdateTheme(UpdateThemeRequest request)
+    {
+        var (status, theme) = await _auth.UpdateThemeAsync(CurrentUserId, request.Theme);
+        return status switch
+        {
+            ThemeUpdateStatus.InvalidTheme => BadRequest(new { message = "Theme must be 'light', 'dark', or 'system'." }),
+            ThemeUpdateStatus.UserNotFound => NotFound(),
+            _ => Ok(new ThemeResponse(theme!)),
+        };
     }
 }
