@@ -1,8 +1,10 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
-using EventReservation.Api.Data;
-using EventReservation.Api.Repositories;
-using EventReservation.Api.Services;
+using EventReservation.Application.Repositories;
+using EventReservation.Application.Services;
+using EventReservation.Infrastructure.Persistence;
+using EventReservation.Infrastructure.Persistence.Repositories;
+using EventReservation.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -23,7 +25,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
 });
 
-builder.Services.AddScoped<JwtTokenService>();
+builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 
 builder.Services.Configure<FraudOptions>(builder.Configuration.GetSection("Fraud"));
 

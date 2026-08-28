@@ -1,6 +1,7 @@
-using EventReservation.Api.DTOs;
-using EventReservation.Api.Repositories;
-using EventReservation.Api.Services;
+using EventReservation.Domain.Entities;
+using EventReservation.Application.DTOs;
+using EventReservation.Application.Repositories;
+using EventReservation.Application.Services;
 using Moq;
 using Xunit;
 
@@ -16,7 +17,7 @@ public class RecommendationServiceTests
 
     public RecommendationServiceTests()
     {
-        _preferences.Setup(r => r.GetByUserIdAsync(It.IsAny<int>())).ReturnsAsync((Data.Entities.UserPreference?)null);
+        _preferences.Setup(r => r.GetByUserIdAsync(It.IsAny<int>())).ReturnsAsync((UserPreference?)null);
         _sut = new RecommendationService(_events.Object, _bookings.Object, _preferences.Object, _recommender.Object);
     }
 
@@ -75,7 +76,7 @@ public class RecommendationServiceTests
     public async Task GetForYouAsync_WithStoredPreferences_ForwardsThemToTheRecommender()
     {
         _bookings.Setup(r => r.GetConfirmedEventIdsForUserAsync(9)).ReturnsAsync([]);
-        _preferences.Setup(r => r.GetByUserIdAsync(9)).ReturnsAsync(new Data.Entities.UserPreference
+        _preferences.Setup(r => r.GetByUserIdAsync(9)).ReturnsAsync(new UserPreference
         {
             UserId = 9,
             EventTypes = "Music Concerts,Sports",

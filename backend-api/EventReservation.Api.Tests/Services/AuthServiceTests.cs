@@ -1,7 +1,7 @@
-using EventReservation.Api.Data.Entities;
-using EventReservation.Api.DTOs;
-using EventReservation.Api.Repositories;
-using EventReservation.Api.Services;
+using EventReservation.Domain.Entities;
+using EventReservation.Application.DTOs;
+using EventReservation.Application.Repositories;
+using EventReservation.Application.Services;
 using Microsoft.Extensions.Configuration;
 using Moq;
 using Xunit;
@@ -14,21 +14,13 @@ public class AuthServiceTests
     private readonly Mock<IUserPreferenceRepository> _preferences = new();
     private readonly AuthService _sut;
 
+    private readonly Mock<IJwtTokenService> _jwt = new();
+
     public AuthServiceTests()
     {
-        // JwtTokenService reads config via IConfiguration.GetSection("Jwt")[...] at
-        // token-generation time - faked directly rather than pulling in a config
-        // provider package just for three key/value pairs.
-        var jwtSection = new Mock<IConfigurationSection>();
-        jwtSection.Setup(s => s["Secret"]).Returns("unit-test-signing-secret-at-least-32-bytes-long");
-        jwtSection.Setup(s => s["Issuer"]).Returns("TestIssuer");
-        jwtSection.Setup(s => s["Audience"]).Returns("TestAudience");
-        var config = new Mock<IConfiguration>();
-        config.Setup(c => c.GetSection("Jwt")).Returns(jwtSection.Object);
-
-        var jwt = new JwtTokenService(config.Object);
+        _jwt.Setup(j => j.GenerateToken(It.IsAny<User>())).Returns("fake-jwt-token");
         _preferences.Setup(p => p.ExistsAsync(It.IsAny<int>())).ReturnsAsync(false);
-        _sut = new AuthService(_users.Object, _preferences.Object, jwt);
+        _sut = new AuthService(_users.Object, _preferences.Object, _jwt.Object);
     }
 
     [Fact]

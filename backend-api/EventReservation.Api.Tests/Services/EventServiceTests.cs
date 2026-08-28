@@ -1,6 +1,7 @@
-using EventReservation.Api.DTOs;
-using EventReservation.Api.Repositories;
-using EventReservation.Api.Services;
+using EventReservation.Domain.Entities;
+using EventReservation.Application.DTOs;
+using EventReservation.Application.Repositories;
+using EventReservation.Application.Services;
 using Moq;
 using Xunit;
 
@@ -38,7 +39,7 @@ public class EventServiceTests
     [Fact]
     public async Task GetDetailAsync_WhenEventMissing_ReturnsNull()
     {
-        _events.Setup(r => r.GetDetailAsync(999)).ReturnsAsync((Data.Entities.Event?)null);
+        _events.Setup(r => r.GetDetailAsync(999)).ReturnsAsync((Event?)null);
 
         var result = await _sut.GetDetailAsync(999);
 

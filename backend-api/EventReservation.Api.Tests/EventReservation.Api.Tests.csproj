@@ -23,6 +23,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\EventReservation.Api\EventReservation.Api.csproj" />
+    <ProjectReference Include="..\EventReservation.Application\EventReservation.Application.csproj" />
+    <ProjectReference Include="..\EventReservation.Domain\EventReservation.Domain.csproj" />
+    <ProjectReference Include="..\EventReservation.Infrastructure\EventReservation.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

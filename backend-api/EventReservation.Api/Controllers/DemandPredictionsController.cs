@@ -1,6 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
-using EventReservation.Api.DTOs;
-using EventReservation.Api.Services;
+using EventReservation.Application.DTOs;
+using EventReservation.Application.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 

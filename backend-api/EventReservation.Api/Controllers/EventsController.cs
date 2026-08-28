@@ -1,5 +1,5 @@
-using EventReservation.Api.DTOs;
-using EventReservation.Api.Services;
+using EventReservation.Application.DTOs;
+using EventReservation.Application.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace EventReservation.Api.Controllers;

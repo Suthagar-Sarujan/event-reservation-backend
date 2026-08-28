@@ -1,7 +1,7 @@
-using EventReservation.Api.Data.Entities;
-using EventReservation.Api.DTOs;
-using EventReservation.Api.Repositories;
-using EventReservation.Api.Services;
+using EventReservation.Domain.Entities;
+using EventReservation.Application.DTOs;
+using EventReservation.Application.Repositories;
+using EventReservation.Application.Services;
 using Moq;
 using Xunit;
 

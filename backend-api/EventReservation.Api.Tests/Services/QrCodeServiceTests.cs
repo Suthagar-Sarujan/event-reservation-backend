@@ -1,4 +1,4 @@
-using EventReservation.Api.Services;
+using EventReservation.Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
 using Moq;
 using Xunit;
