@@ -150,6 +150,13 @@ public class BookingRepository : IBookingRepository
         return rowsAffected > 0;
     }
 
+    public async Task<bool> TryMarkCheckedOutAsync(int bookingId)
+    {
+        var rowsAffected = await _db.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE bookings SET checked_out_at = {DateTime.UtcNow} WHERE booking_id = {bookingId} AND checked_in_at IS NOT NULL AND checked_out_at IS NULL AND status = 'confirmed'");
+        return rowsAffected > 0;
+    }
+
     public async Task<BookingCancellationResult> CancelAsync(int bookingId, int userId)
     {
         await using var transaction = await _db.Database.BeginTransactionAsync();

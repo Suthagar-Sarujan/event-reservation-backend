@@ -26,6 +26,12 @@ public class Booking
     // verification attempt is rejected rather than silently re-approved.
     public DateTime? CheckedInAt { get; set; }
 
+    // Set when a gate user checks the ticket back out (see GateService).
+    // Null means not yet checked out. Only settable once CheckedInAt is set,
+    // and only once - a second check-out attempt is rejected the same way a
+    // second check-in is.
+    public DateTime? CheckedOutAt { get; set; }
+
     public User? User { get; set; }
     public Event? Event { get; set; }
     public ICollection<BookingItem> Items { get; set; } = new List<BookingItem>();

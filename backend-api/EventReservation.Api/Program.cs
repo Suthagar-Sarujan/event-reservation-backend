@@ -37,6 +37,8 @@ builder.Services.AddScoped<IListingRepository, ListingRepository>();
 builder.Services.AddScoped<IBookingRepository, BookingRepository>();
 builder.Services.AddScoped<IFraudRepository, FraudRepository>();
 builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>();
+builder.Services.AddScoped<IGateRepository, GateRepository>();
+builder.Services.AddScoped<IGateScanRepository, GateScanRepository>();
 
 // Business logic layer
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -48,6 +50,7 @@ builder.Services.AddScoped<IRecommendationService, RecommendationService>();
 builder.Services.AddScoped<IFraudDetectionService, FraudDetectionService>();
 builder.Services.AddScoped<IUserPreferenceService, UserPreferenceService>();
 builder.Services.AddScoped<IDemandPredictionService, DemandPredictionService>();
+builder.Services.AddScoped<IGateService, GateService>();
 builder.Services.AddSingleton<IQrCodeService, QrCodeService>();
 
 builder.Services.AddHttpClient<IRecommenderClient, RecommenderClient>(client =>

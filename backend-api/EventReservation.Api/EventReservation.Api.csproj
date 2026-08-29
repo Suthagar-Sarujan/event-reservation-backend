@@ -9,6 +9,15 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.9" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.9" />
+    <!-- The DbContext lives in Infrastructure with PrivateAssets="all" on its own
+         Design package reference, so that package's tooling assets never flow
+         downstream to this, the startup project - but `dotnet ef` needs to find
+         Design on the startup project specifically. Referenced here too, for
+         that reason alone; it has no runtime effect (design/tooling-time only). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.15">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>

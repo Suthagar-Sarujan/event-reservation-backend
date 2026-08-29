@@ -23,6 +23,15 @@ public interface IBookingRepository
     Task<bool> TryMarkCheckedInAsync(int bookingId);
 
     /// <summary>
+    /// Marks a booking checked out, atomically and only once: requires the
+    /// booking to already be checked in and not yet checked out, returning
+    /// false (without changing anything) otherwise - so check-out can't
+    /// happen before check-in, and a second check-out of the same ticket is
+    /// rejected rather than silently re-approved.
+    /// </summary>
+    Task<bool> TryMarkCheckedOutAsync(int bookingId);
+
+    /// <summary>
     /// Cancels a confirmed booking as a single atomic operation: restores the
     /// listing's inventory, rolls back the per-(user, event) ticket count, and
     /// marks the booking Cancelled - all inside one transaction, mirroring the

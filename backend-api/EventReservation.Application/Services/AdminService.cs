@@ -11,14 +11,25 @@ public class AdminService : IAdminService
     private readonly IBookingRepository _bookings;
     private readonly IRecommenderClient _recommender;
     private readonly IFraudRepository _fraud;
+    private readonly IGateRepository _gates;
+    private readonly IGateScanRepository _gateScans;
 
-    public AdminService(IUserRepository users, IEventRepository events, IBookingRepository bookings, IRecommenderClient recommender, IFraudRepository fraud)
+    public AdminService(
+        IUserRepository users,
+        IEventRepository events,
+        IBookingRepository bookings,
+        IRecommenderClient recommender,
+        IFraudRepository fraud,
+        IGateRepository gates,
+        IGateScanRepository gateScans)
     {
         _users = users;
         _events = events;
         _bookings = bookings;
         _recommender = recommender;
         _fraud = fraud;
+        _gates = gates;
+        _gateScans = gateScans;
     }
 
     public async Task<AdminStatsDto> GetStatsAsync()
@@ -174,5 +185,192 @@ public class AdminService : IAdminService
         a.Decision.ToString(),
         a.Reasons,
         a.CreatedAt
+    );
+
+    public async Task<(int Total, int Page, int PageSize, List<GateDto> Items)> GetGatesAsync(string? search, string? status, int page, int pageSize)
+    {
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        GateStatus? parsedStatus = null;
+        if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<GateStatus>(status, ignoreCase: true, out var s))
+        {
+            parsedStatus = s;
+        }
+
+        var (total, gates) = await _gates.SearchAsync(search, parsedStatus, page, pageSize);
+        var items = gates.Select(ToGateDto).ToList();
+        return (total, page, pageSize, items);
+    }
+
+    public async Task<GateDetailDto?> GetGateDetailAsync(int gateId)
+    {
+        var gate = await _gates.GetDetailAsync(gateId);
+        if (gate is null) return null;
+
+        var assignedUsers = new List<GateUserSummaryDto>();
+        foreach (var a in gate.Assignments.Where(a => a.User is not null))
+        {
+            var allGateIds = await _gates.GetAssignedGateIdsForUserAsync(a.UserId);
+            assignedUsers.Add(new GateUserSummaryDto(a.User!.UserId, a.User.FullName, a.User.Email, allGateIds));
+        }
+
+        return new GateDetailDto(gate.GateId, gate.Name, gate.Description, gate.Status.ToString(), gate.CreatedAt, gate.UpdatedAt, assignedUsers);
+    }
+
+    public async Task<(GateCreationStatus Status, GateDto? Gate)> CreateGateAsync(string name, string? description, int adminUserId)
+    {
+        var trimmedName = name.Trim();
+        if (await _gates.NameExistsAsync(trimmedName))
+        {
+            return (GateCreationStatus.DuplicateName, null);
+        }
+
+        var now = DateTime.UtcNow;
+        var gate = new Gate
+        {
+            Name = trimmedName,
+            Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim(),
+            Status = GateStatus.Active,
+            CreatedByUserId = adminUserId,
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+        await _gates.AddAsync(gate);
+
+        return (GateCreationStatus.Success, ToGateDto(gate));
+    }
+
+    public async Task<GateUpdateStatus> UpdateGateAsync(int gateId, string name, string? description)
+    {
+        var gate = await _gates.GetByIdAsync(gateId);
+        if (gate is null) return GateUpdateStatus.NotFound;
+
+        var trimmedName = name.Trim();
+        if (await _gates.NameExistsAsync(trimmedName, excludeGateId: gateId))
+        {
+            return GateUpdateStatus.DuplicateName;
+        }
+
+        gate.Name = trimmedName;
+        gate.Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+        gate.UpdatedAt = DateTime.UtcNow;
+        await _gates.SaveChangesAsync();
+
+        return GateUpdateStatus.Success;
+    }
+
+    public async Task<GateStatusChangeStatus> SetGateStatusAsync(int gateId, bool active)
+    {
+        var gate = await _gates.GetByIdAsync(gateId);
+        if (gate is null) return GateStatusChangeStatus.NotFound;
+
+        gate.Status = active ? GateStatus.Active : GateStatus.Inactive;
+        gate.UpdatedAt = DateTime.UtcNow;
+        await _gates.SaveChangesAsync();
+
+        return GateStatusChangeStatus.Success;
+    }
+
+    public Task<GateDeleteStatus> DeleteGateAsync(int gateId) => _gates.DeleteAsync(gateId);
+
+    public async Task<(GateUserCreationStatus Status, GateUserSummaryDto? User)> CreateGateUserAsync(string fullName, string email, string password, List<int> gateIds)
+    {
+        var normalizedEmail = email.Trim().ToLowerInvariant();
+        if (await _users.EmailExistsAsync(normalizedEmail))
+        {
+            return (GateUserCreationStatus.EmailAlreadyExists, null);
+        }
+
+        var ids = gateIds.Distinct().ToList();
+        foreach (var gateId in ids)
+        {
+            if (await _gates.GetByIdAsync(gateId) is null)
+            {
+                return (GateUserCreationStatus.GateNotFound, null);
+            }
+        }
+
+        var user = new User
+        {
+            FullName = fullName.Trim(),
+            Email = normalizedEmail,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),
+            Role = UserRole.GateUser,
+            CreatedAt = DateTime.UtcNow,
+        };
+        await _users.AddAsync(user);
+
+        foreach (var gateId in ids)
+        {
+            await _gates.AssignUserAsync(gateId, user.UserId, assignedByUserId: null);
+        }
+
+        return (GateUserCreationStatus.Success, new GateUserSummaryDto(user.UserId, user.FullName, user.Email, ids));
+    }
+
+    public async Task<(int Total, int Page, int PageSize, List<GateUserSummaryDto> Items)> GetGateUsersAsync(string? search, int page, int pageSize)
+    {
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        var (total, users, gateIdsByUser) = await _gates.SearchGateUsersAsync(search, page, pageSize);
+        var items = users.Select(u => new GateUserSummaryDto(
+            u.UserId, u.FullName, u.Email,
+            gateIdsByUser.TryGetValue(u.UserId, out var ids) ? ids : [])).ToList();
+
+        return (total, page, pageSize, items);
+    }
+
+    public async Task<GateUserAssignStatus> AssignGateUserAsync(int gateId, int userId, int assignedByUserId)
+    {
+        if (await _gates.GetByIdAsync(gateId) is null) return GateUserAssignStatus.GateNotFound;
+
+        var user = await _users.GetByIdAsync(userId);
+        if (user is null) return GateUserAssignStatus.UserNotFound;
+        if (user.Role != UserRole.GateUser) return GateUserAssignStatus.UserNotGateRole;
+
+        await _gates.AssignUserAsync(gateId, userId, assignedByUserId);
+        return GateUserAssignStatus.Success;
+    }
+
+    public async Task<GateUserRemoveStatus> RemoveGateUserAsync(int gateId, int userId)
+    {
+        var removed = await _gates.RemoveUserAsync(gateId, userId);
+        return removed ? GateUserRemoveStatus.Success : GateUserRemoveStatus.NotFound;
+    }
+
+    public async Task<(int Total, int Page, int PageSize, List<GateScanHistoryDto> Items)> GetGateScanHistoryAsync(int? gateId, string? status, DateTime? fromUtc, DateTime? toUtc, int page, int pageSize)
+    {
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        GateScanStatus? parsedStatus = null;
+        if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<GateScanStatus>(status, ignoreCase: true, out var s))
+        {
+            parsedStatus = s;
+        }
+
+        var (total, scans) = await _gateScans.SearchAsync(gateId, parsedStatus, fromUtc, toUtc, page, pageSize);
+        var items = scans.Select(ToGateScanHistoryDto).ToList();
+        return (total, page, pageSize, items);
+    }
+
+    private static GateDto ToGateDto(Gate g) => new(
+        g.GateId, g.Name, g.Description, g.Status.ToString(), g.Assignments.Count, g.CreatedAt, g.UpdatedAt);
+
+    private static GateScanHistoryDto ToGateScanHistoryDto(GateScanHistory s) => new(
+        s.ScanId,
+        s.GateId,
+        s.Gate?.Name ?? "",
+        s.ScannedByUserId,
+        s.ScannedByUser?.FullName ?? "",
+        s.BookingId,
+        s.Booking?.BookingReference,
+        s.Event?.Name,
+        s.ScanType.ToString(),
+        s.Status.ToString(),
+        s.FailureReason,
+        s.ScannedAt
     );
 }

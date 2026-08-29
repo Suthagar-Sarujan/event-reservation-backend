@@ -14,3 +14,43 @@ public enum AdminEventUpdateStatus
     NotFound,
     InvalidStatus,
 }
+
+public enum GateCreationStatus
+{
+    Success,
+    DuplicateName,
+}
+
+public enum GateUpdateStatus
+{
+    Success,
+    NotFound,
+    DuplicateName,
+}
+
+public enum GateStatusChangeStatus
+{
+    Success,
+    NotFound,
+}
+
+public enum GateUserCreationStatus
+{
+    Success,
+    EmailAlreadyExists,
+    GateNotFound,
+}
+
+public enum GateUserAssignStatus
+{
+    Success,
+    GateNotFound,
+    UserNotFound,
+    UserNotGateRole,
+}
+
+public enum GateUserRemoveStatus
+{
+    Success,
+    NotFound,
+}

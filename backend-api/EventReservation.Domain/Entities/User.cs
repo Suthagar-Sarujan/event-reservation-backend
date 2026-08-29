@@ -5,6 +5,7 @@ public enum UserRole
     Customer,
     Organizer,
     Admin,
+    GateUser,
 }
 
 public enum ThemePreference

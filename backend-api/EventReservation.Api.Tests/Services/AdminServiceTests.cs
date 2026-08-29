@@ -14,11 +14,13 @@ public class AdminServiceTests
     private readonly Mock<IBookingRepository> _bookings = new();
     private readonly Mock<IRecommenderClient> _recommender = new();
     private readonly Mock<IFraudRepository> _fraud = new();
+    private readonly Mock<IGateRepository> _gates = new();
+    private readonly Mock<IGateScanRepository> _gateScans = new();
     private readonly AdminService _sut;
 
     public AdminServiceTests()
     {
-        _sut = new AdminService(_users.Object, _events.Object, _bookings.Object, _recommender.Object, _fraud.Object);
+        _sut = new AdminService(_users.Object, _events.Object, _bookings.Object, _recommender.Object, _fraud.Object, _gates.Object, _gateScans.Object);
     }
 
     [Fact]
@@ -166,5 +168,115 @@ public class AdminServiceTests
         await _sut.GetBookingTrendAsync(500);
 
         _bookings.Verify(r => r.GetDailyTrendAsync(90), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateGateAsync_WhenNameIsUnique_CreatesTheGateAndReturnsIt()
+    {
+        _gates.Setup(g => g.NameExistsAsync("Gate A", null)).ReturnsAsync(false);
+
+        var (status, gate) = await _sut.CreateGateAsync("Gate A", "Main entrance", adminUserId: 1);
+
+        Assert.Equal(GateCreationStatus.Success, status);
+        Assert.NotNull(gate);
+        Assert.Equal("Gate A", gate!.Name);
+        Assert.Equal("Active", gate.Status);
+        _gates.Verify(g => g.AddAsync(It.Is<Gate>(x => x.Name == "Gate A" && x.CreatedByUserId == 1)), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateGateAsync_WhenNameAlreadyExists_ReturnsDuplicateNameWithoutCreating()
+    {
+        _gates.Setup(g => g.NameExistsAsync("Gate A", null)).ReturnsAsync(true);
+
+        var (status, gate) = await _sut.CreateGateAsync("Gate A", null, adminUserId: 1);
+
+        Assert.Equal(GateCreationStatus.DuplicateName, status);
+        Assert.Null(gate);
+        _gates.Verify(g => g.AddAsync(It.IsAny<Gate>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DeleteGateAsync_WhenRepositoryReportsHasHistory_PassesThatStatusThrough()
+    {
+        _gates.Setup(g => g.DeleteAsync(5)).ReturnsAsync(GateDeleteStatus.HasHistory);
+
+        var status = await _sut.DeleteGateAsync(5);
+
+        Assert.Equal(GateDeleteStatus.HasHistory, status);
+    }
+
+    [Fact]
+    public async Task CreateGateUserAsync_WhenEmailAlreadyExists_ReturnsEmailAlreadyExistsWithoutCreatingAUser()
+    {
+        _users.Setup(u => u.EmailExistsAsync("taken@x.com")).ReturnsAsync(true);
+
+        var (status, user) = await _sut.CreateGateUserAsync("Gate Staff", "taken@x.com", "password123", []);
+
+        Assert.Equal(GateUserCreationStatus.EmailAlreadyExists, status);
+        Assert.Null(user);
+        _users.Verify(u => u.AddAsync(It.IsAny<User>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateGateUserAsync_WhenEmailIsNew_CreatesAGateUserAndAssignsTheGivenGates()
+    {
+        _users.Setup(u => u.EmailExistsAsync("staff@x.com")).ReturnsAsync(false);
+        _gates.Setup(g => g.GetByIdAsync(1)).ReturnsAsync(new Gate { GateId = 1, Name = "Gate A" });
+        User? added = null;
+        _users.Setup(u => u.AddAsync(It.IsAny<User>())).Callback<User>(u => { u.UserId = 99; added = u; }).Returns(Task.CompletedTask);
+
+        var (status, user) = await _sut.CreateGateUserAsync("Gate Staff", "staff@x.com", "password123", [1]);
+
+        Assert.Equal(GateUserCreationStatus.Success, status);
+        Assert.NotNull(user);
+        Assert.Equal(99, user!.UserId);
+        Assert.NotNull(added);
+        Assert.Equal(UserRole.GateUser, added!.Role);
+        _gates.Verify(g => g.AssignUserAsync(1, 99, null), Times.Once);
+    }
+
+    [Fact]
+    public async Task AssignGateUserAsync_WhenTargetUserIsNotAGateUser_ReturnsUserNotGateRole()
+    {
+        _gates.Setup(g => g.GetByIdAsync(1)).ReturnsAsync(new Gate { GateId = 1, Name = "Gate A" });
+        _users.Setup(u => u.GetByIdAsync(9)).ReturnsAsync(new User { UserId = 9, Role = UserRole.Customer });
+
+        var status = await _sut.AssignGateUserAsync(1, 9, assignedByUserId: 2);
+
+        Assert.Equal(GateUserAssignStatus.UserNotGateRole, status);
+        _gates.Verify(g => g.AssignUserAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AssignGateUserAsync_WhenGateAndUserAreValid_AssignsSuccessfully()
+    {
+        _gates.Setup(g => g.GetByIdAsync(1)).ReturnsAsync(new Gate { GateId = 1, Name = "Gate A" });
+        _users.Setup(u => u.GetByIdAsync(9)).ReturnsAsync(new User { UserId = 9, Role = UserRole.GateUser });
+
+        var status = await _sut.AssignGateUserAsync(1, 9, assignedByUserId: 2);
+
+        Assert.Equal(GateUserAssignStatus.Success, status);
+        _gates.Verify(g => g.AssignUserAsync(1, 9, 2), Times.Once);
+    }
+
+    [Fact]
+    public async Task RemoveGateUserAsync_WhenNoSuchAssignmentExists_ReturnsNotFound()
+    {
+        _gates.Setup(g => g.RemoveUserAsync(1, 9)).ReturnsAsync(false);
+
+        var status = await _sut.RemoveGateUserAsync(1, 9);
+
+        Assert.Equal(GateUserRemoveStatus.NotFound, status);
+    }
+
+    [Fact]
+    public async Task RemoveGateUserAsync_WhenAssignmentIsRemoved_ReturnsSuccess()
+    {
+        _gates.Setup(g => g.RemoveUserAsync(1, 9)).ReturnsAsync(true);
+
+        var status = await _sut.RemoveGateUserAsync(1, 9);
+
+        Assert.Equal(GateUserRemoveStatus.Success, status);
     }
 }

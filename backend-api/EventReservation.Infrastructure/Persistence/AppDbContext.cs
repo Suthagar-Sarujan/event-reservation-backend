@@ -18,6 +18,9 @@ public class AppDbContext : DbContext
     public DbSet<UserEventTicketCount> UserEventTicketCounts => Set<UserEventTicketCount>();
     public DbSet<BookingRiskAssessment> BookingRiskAssessments => Set<BookingRiskAssessment>();
     public DbSet<UserPreference> UserPreferences => Set<UserPreference>();
+    public DbSet<Gate> Gates => Set<Gate>();
+    public DbSet<GateUserAssignment> GateUserAssignments => Set<GateUserAssignment>();
+    public DbSet<GateScanHistory> GateScanHistories => Set<GateScanHistory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -140,8 +143,8 @@ public class AppDbContext : DbContext
             e.Property(u => u.PasswordHash).HasColumnName("password_hash");
             e.Property(u => u.Role).HasColumnName("role")
                 .HasConversion(
-                    v => v == UserRole.Admin ? "admin" : v == UserRole.Organizer ? "organizer" : "customer",
-                    v => v == "admin" ? UserRole.Admin : v == "organizer" ? UserRole.Organizer : UserRole.Customer);
+                    v => v == UserRole.Admin ? "admin" : v == UserRole.Organizer ? "organizer" : v == UserRole.GateUser ? "gateuser" : "customer",
+                    v => v == "admin" ? UserRole.Admin : v == "organizer" ? UserRole.Organizer : v == "gateuser" ? UserRole.GateUser : UserRole.Customer);
             e.Property(u => u.ThemePreference).HasColumnName("theme_preference")
                 .HasConversion(
                     v => v == ThemePreference.Light ? "light" : v == ThemePreference.Dark ? "dark" : "system",
@@ -165,6 +168,7 @@ public class AppDbContext : DbContext
             e.Property(b => b.CreatedAt).HasColumnName("created_at");
             e.Property(b => b.PaymentReference).HasColumnName("payment_reference").HasMaxLength(20);
             e.Property(b => b.CheckedInAt).HasColumnName("checked_in_at");
+            e.Property(b => b.CheckedOutAt).HasColumnName("checked_out_at");
             e.HasOne(b => b.User).WithMany(u => u.Bookings).HasForeignKey(b => b.UserId);
             e.HasOne(b => b.Event).WithMany().HasForeignKey(b => b.EventId);
         });
@@ -236,6 +240,68 @@ public class AppDbContext : DbContext
             e.Property(x => x.CreatedAt).HasColumnName("created_at");
             e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
             e.HasOne(x => x.User).WithOne().HasForeignKey<UserPreference>(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Gate>(e =>
+        {
+            e.ToTable("gates");
+            e.HasKey(x => x.GateId);
+            e.Property(x => x.GateId).HasColumnName("gate_id");
+            e.Property(x => x.Name).HasColumnName("name").HasMaxLength(150);
+            e.HasIndex(x => x.Name).IsUnique();
+            e.Property(x => x.Description).HasColumnName("description").HasMaxLength(500);
+            e.Property(x => x.Status).HasColumnName("status")
+                .HasConversion(
+                    v => v == GateStatus.Active ? "active" : "inactive",
+                    v => v == "active" ? GateStatus.Active : GateStatus.Inactive);
+            e.Property(x => x.CreatedByUserId).HasColumnName("created_by_user_id");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(x => x.Status);
+        });
+
+        modelBuilder.Entity<GateUserAssignment>(e =>
+        {
+            e.ToTable("gate_user_assignments");
+            e.HasKey(x => new { x.GateId, x.UserId });
+            e.Property(x => x.GateId).HasColumnName("gate_id");
+            e.Property(x => x.UserId).HasColumnName("user_id");
+            e.Property(x => x.AssignedAt).HasColumnName("assigned_at");
+            e.Property(x => x.AssignedByUserId).HasColumnName("assigned_by_user_id");
+            e.HasOne(x => x.Gate).WithMany(g => g.Assignments).HasForeignKey(x => x.GateId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.AssignedByUserId).OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(x => x.UserId);
+        });
+
+        modelBuilder.Entity<GateScanHistory>(e =>
+        {
+            e.ToTable("gate_scan_histories");
+            e.HasKey(x => x.ScanId);
+            e.Property(x => x.ScanId).HasColumnName("scan_id");
+            e.Property(x => x.GateId).HasColumnName("gate_id");
+            e.Property(x => x.ScannedByUserId).HasColumnName("scanned_by_user_id");
+            e.Property(x => x.BookingId).HasColumnName("booking_id");
+            e.Property(x => x.ScannedCode).HasColumnName("scanned_code").HasMaxLength(255);
+            e.Property(x => x.EventId).HasColumnName("event_id");
+            e.Property(x => x.ScanType).HasColumnName("scan_type")
+                .HasConversion(
+                    v => v == GateScanType.CheckOut ? "checkout" : "checkin",
+                    v => v == "checkout" ? GateScanType.CheckOut : GateScanType.CheckIn);
+            e.Property(x => x.Status).HasColumnName("status")
+                .HasConversion(
+                    v => v == GateScanStatus.Success ? "success" : "failed",
+                    v => v == "success" ? GateScanStatus.Success : GateScanStatus.Failed);
+            e.Property(x => x.FailureReason).HasColumnName("failure_reason").HasMaxLength(500);
+            e.Property(x => x.ScannedAt).HasColumnName("scanned_at");
+            e.HasOne(x => x.Gate).WithMany().HasForeignKey(x => x.GateId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.ScannedByUser).WithMany().HasForeignKey(x => x.ScannedByUserId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Booking).WithMany().HasForeignKey(x => x.BookingId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(x => x.Event).WithMany().HasForeignKey(x => x.EventId).OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(x => x.GateId);
+            e.HasIndex(x => x.Status);
+            e.HasIndex(x => x.ScannedAt);
         });
     }
 }

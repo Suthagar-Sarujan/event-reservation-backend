@@ -14,6 +14,9 @@
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS gate_scan_histories;
+DROP TABLE IF EXISTS gate_user_assignments;
+DROP TABLE IF EXISTS gates;
 DROP TABLE IF EXISTS booking_risk_assessments;
 DROP TABLE IF EXISTS user_event_ticket_counts;
 DROP TABLE IF EXISTS user_preferences;
@@ -35,7 +38,7 @@ CREATE TABLE users (
     full_name       VARCHAR(150) NOT NULL,
     email            VARCHAR(190) NOT NULL UNIQUE,
     password_hash     VARCHAR(255) NOT NULL,
-    role               ENUM('customer','organizer','admin') NOT NULL DEFAULT 'customer',
+    role               ENUM('customer','organizer','admin','gateuser') NOT NULL DEFAULT 'customer',
     theme_preference   ENUM('light','dark','system') NOT NULL DEFAULT 'system',
     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
@@ -158,6 +161,7 @@ CREATE TABLE bookings (
     created_at                   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     payment_reference             VARCHAR(20) NULL,  -- mock payment confirmation id, no real gateway is integrated
     checked_in_at                   DATETIME NULL,   -- set once, at the door, by TicketVerificationController
+    checked_out_at                  DATETIME NULL,   -- set once, by a Gate User's check-out scan, only after checked_in_at is set
     CONSTRAINT fk_booking_user FOREIGN KEY (user_id) REFERENCES users(user_id),
     CONSTRAINT fk_booking_event FOREIGN KEY (event_id) REFERENCES events(event_id),
     INDEX idx_bookings_user (user_id)
@@ -236,6 +240,66 @@ CREATE TABLE booking_risk_assessments (
     INDEX idx_bra_event (event_id),
     INDEX idx_bra_ip (ip_address),
     INDEX idx_bra_created (created_at)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------------------
+-- Gate management & QR ticket scanning (app-owned)
+-- ---------------------------------------------------------------------------
+
+-- Venue-level physical entry point (e.g. "Gate A") - reusable across events,
+-- deliberately NOT tied to one event via a foreign key. A Gate User's scan
+-- session instead supplies the eventId client-side (see GateService.
+-- ScanTicketAsync), which verifies the ticket's booking belongs to that event.
+CREATE TABLE gates (
+    gate_id             INT AUTO_INCREMENT PRIMARY KEY,
+    name                VARCHAR(150) NOT NULL UNIQUE,
+    description         VARCHAR(500) NULL,
+    status              ENUM('active','inactive') NOT NULL DEFAULT 'active',
+    created_by_user_id  INT NULL,
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_gate_creator FOREIGN KEY (created_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL,
+    INDEX idx_gates_status (status)
+) ENGINE=InnoDB;
+
+-- Join row granting a Gate User staff account permission to scan at a
+-- specific gate. A user can be assigned to multiple gates.
+CREATE TABLE gate_user_assignments (
+    gate_id              INT NOT NULL,
+    user_id              INT NOT NULL,
+    assigned_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    assigned_by_user_id  INT NULL,
+    PRIMARY KEY (gate_id, user_id),
+    CONSTRAINT fk_gua_gate     FOREIGN KEY (gate_id)             REFERENCES gates(gate_id) ON DELETE CASCADE,
+    CONSTRAINT fk_gua_user     FOREIGN KEY (user_id)             REFERENCES users(user_id) ON DELETE CASCADE,
+    CONSTRAINT fk_gua_assigner FOREIGN KEY (assigned_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL,
+    INDEX idx_gua_user (user_id)
+) ENGINE=InnoDB;
+
+-- One row per scan attempt at a gate, success or failure, for audit - check-in
+-- only (see scan_type - a single ENUM value today is intentional, not a
+-- placeholder for check-out), mirroring booking_risk_assessments' role as an
+-- append-only attempt log. booking_id/event_id are nullable because a scan
+-- can fail before a booking was ever resolved (e.g. malformed code, or a
+-- gate-permission rejection that never even looks one up).
+CREATE TABLE gate_scan_histories (
+    scan_id             BIGINT AUTO_INCREMENT PRIMARY KEY,
+    gate_id             INT NOT NULL,
+    scanned_by_user_id  INT NOT NULL,
+    booking_id          INT NULL,
+    scanned_code        VARCHAR(255) NOT NULL,  -- raw scanned text, kept for audit even on failure
+    event_id            BIGINT NULL,
+    scan_type           ENUM('checkin') NOT NULL DEFAULT 'checkin',
+    status               ENUM('success','failed') NOT NULL,
+    failure_reason        VARCHAR(500) NULL,     -- human-readable message text, NULL on success
+    scanned_at             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_gsh_gate    FOREIGN KEY (gate_id)            REFERENCES gates(gate_id)       ON DELETE RESTRICT,
+    CONSTRAINT fk_gsh_user    FOREIGN KEY (scanned_by_user_id) REFERENCES users(user_id)       ON DELETE RESTRICT,
+    CONSTRAINT fk_gsh_booking FOREIGN KEY (booking_id)         REFERENCES bookings(booking_id) ON DELETE SET NULL,
+    CONSTRAINT fk_gsh_event   FOREIGN KEY (event_id)           REFERENCES events(event_id)     ON DELETE SET NULL,
+    INDEX idx_gsh_gate (gate_id),
+    INDEX idx_gsh_status (status),
+    INDEX idx_gsh_scanned_at (scanned_at)
 ) ENGINE=InnoDB;
 
 -- Reserve id space for organizer-created rows well above anything SeatGeek's
