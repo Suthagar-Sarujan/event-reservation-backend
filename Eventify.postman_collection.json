@@ -1,0 +1,333 @@
+{
+  "info": {
+    "name": "Eventify API",
+    "description": "Smart Event Ticket Reservation System backend. Set {{base_url}} (default http://localhost:5248/api). Run Auth > Login (or Register) first - it auto-saves the returned token into {{token}} via a test script, so every other request's Bearer auth just works.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:5248/api" },
+    { "key": "token", "value": "" },
+    { "key": "eventId", "value": "17693089" },
+    { "key": "listingId", "value": "" },
+    { "key": "bookingId", "value": "1" },
+    { "key": "gateId", "value": "1" },
+    { "key": "userId", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Test Customer\",\n  \"email\": \"test-customer@example.com\",\n  \"password\": \"TestPass123!\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.token) pm.collectionVariables.set('token', json.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"TestPass123!\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.token) pm.collectionVariables.set('token', json.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/auth/forgot-password",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"test-customer@example.com\"\n}" }
+          }
+        },
+        {
+          "name": "Validate Reset Token",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/auth/validate-reset-token?token=PASTE_TOKEN_HERE", "host": ["{{base_url}}"], "path": ["auth", "validate-reset-token"], "query": [{ "key": "token", "value": "PASTE_TOKEN_HERE" }] }
+          }
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/auth/reset-password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"PASTE_TOKEN_HERE\",\n  \"newPassword\": \"NewPassword123!\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Theme",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/auth/theme",
+            "body": { "mode": "raw", "raw": "{\n  \"theme\": \"dark\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Events (public)",
+      "item": [
+        {
+          "name": "List Events",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/events?page=1&pageSize=20&bookableOnly=true", "host": ["{{base_url}}"], "path": ["events"], "query": [{ "key": "search", "value": "", "disabled": true }, { "key": "type", "value": "", "disabled": true }, { "key": "page", "value": "1" }, { "key": "pageSize", "value": "20" }, { "key": "bookableOnly", "value": "true" }] }
+          }
+        },
+        { "name": "Event Filters", "request": { "method": "GET", "url": "{{base_url}}/events/filters" } },
+        { "name": "Event Detail", "request": { "method": "GET", "url": "{{base_url}}/events/{{eventId}}" } },
+        { "name": "Similar Events", "request": { "method": "GET", "url": "{{base_url}}/events/{{eventId}}/similar?topN=6" } }
+      ]
+    },
+    {
+      "name": "Recommendations",
+      "item": [
+        { "name": "For You", "request": { "method": "GET", "url": "{{base_url}}/recommendations/for-you" } },
+        { "name": "Popular", "request": { "method": "GET", "url": "{{base_url}}/recommendations/popular" } }
+      ]
+    },
+    {
+      "name": "Bookings (customer)",
+      "item": [
+        { "name": "My Bookings", "request": { "method": "GET", "url": "{{base_url}}/bookings/me" } },
+        {
+          "name": "Create Booking",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/bookings",
+            "body": { "mode": "raw", "raw": "{\n  \"listingId\": \"{{listingId}}\",\n  \"quantity\": 1\n}" }
+          }
+        },
+        { "name": "Get Ticket", "request": { "method": "GET", "url": "{{base_url}}/bookings/{{bookingId}}/ticket" } },
+        { "name": "Cancel Booking", "request": { "method": "POST", "url": "{{base_url}}/bookings/{{bookingId}}/cancel" } },
+        { "name": "Resend Confirmation Email", "request": { "method": "POST", "url": "{{base_url}}/bookings/{{bookingId}}/resend-email" } }
+      ]
+    },
+    {
+      "name": "Ticket Verification (Organizer/Admin)",
+      "item": [
+        {
+          "name": "Verify Ticket",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/ticket-verification",
+            "body": { "mode": "raw", "raw": "{\n  \"code\": \"BKG-XXXXXXXX\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Organizer",
+      "item": [
+        { "name": "List Venues", "request": { "method": "GET", "url": "{{base_url}}/organizer/venues" } },
+        { "name": "My Events", "request": { "method": "GET", "url": "{{base_url}}/organizer/events" } },
+        { "name": "Event Detail", "request": { "method": "GET", "url": "{{base_url}}/organizer/events/{{eventId}}" } },
+        {
+          "name": "Create Event",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/organizer/events",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Test Concert\",\n  \"taxonomyName\": \"concert\",\n  \"taxonomySubName\": \"rock\",\n  \"venueId\": 1,\n  \"datetimeUtc\": \"2026-12-01T20:00:00Z\",\n  \"listings\": [\n    { \"section\": \"GA\", \"quantity\": 10, \"unitPrice\": 25.00 }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Event",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/organizer/events/{{eventId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Updated Name\",\n  \"datetimeUtc\": \"2026-12-01T20:00:00Z\",\n  \"status\": \"normal\",\n  \"imageUrl\": null\n}" }
+          }
+        },
+        {
+          "name": "Add Listing To Event",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/organizer/events/{{eventId}}/listings",
+            "body": { "mode": "raw", "raw": "{\n  \"section\": \"VIP\",\n  \"quantity\": 5,\n  \"unitPrice\": 100.00\n}" }
+          }
+        },
+        {
+          "name": "Update Listing",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/organizer/listings/PASTE_LISTING_ID",
+            "body": { "mode": "raw", "raw": "{\n  \"quantity\": 20,\n  \"unitPrice\": 30.00\n}" }
+          }
+        },
+        { "name": "Event Bookings", "request": { "method": "GET", "url": "{{base_url}}/organizer/events/{{eventId}}/bookings" } },
+        { "name": "Resend Booking Confirmation Email", "request": { "method": "POST", "url": "{{base_url}}/organizer/bookings/{{bookingId}}/resend-email" } },
+        { "name": "Sales Trend", "request": { "method": "GET", "url": "{{base_url}}/organizer/sales-trend?days=30" } },
+        { "name": "Fraud Overview", "request": { "method": "GET", "url": "{{base_url}}/organizer/fraud-overview" } },
+        { "name": "Demand Predictions (list)", "request": { "method": "GET", "url": "{{base_url}}/organizer/demand-predictions" } },
+        { "name": "Demand Prediction (single event)", "request": { "method": "GET", "url": "{{base_url}}/organizer/demand-predictions/{{eventId}}" } },
+        { "name": "Demand Model Info", "request": { "method": "GET", "url": "{{base_url}}/organizer/demand-predictions/model-info" } },
+        { "name": "Retrain Demand Model", "request": { "method": "POST", "url": "{{base_url}}/organizer/demand-predictions/retrain" } }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        { "name": "Platform Stats", "request": { "method": "GET", "url": "{{base_url}}/admin/stats" } },
+        { "name": "List Users", "request": { "method": "GET", "url": "{{base_url}}/admin/users?page=1&pageSize=25" } },
+        {
+          "name": "Update User Role",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/admin/users/{{userId}}/role",
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"organizer\"\n}" }
+          }
+        },
+        { "name": "List Events", "request": { "method": "GET", "url": "{{base_url}}/admin/events?page=1&pageSize=25" } },
+        { "name": "Cancel Event", "request": { "method": "POST", "url": "{{base_url}}/admin/events/{{eventId}}/cancel" } },
+        {
+          "name": "Update Event",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/admin/events/{{eventId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Updated Name\",\n  \"datetimeUtc\": \"2026-12-01T20:00:00Z\",\n  \"status\": \"normal\",\n  \"imageUrl\": null\n}" }
+          }
+        },
+        { "name": "List Bookings", "request": { "method": "GET", "url": "{{base_url}}/admin/bookings?page=1&pageSize=25" } },
+        { "name": "Resend Booking Confirmation Email", "request": { "method": "POST", "url": "{{base_url}}/admin/bookings/{{bookingId}}/resend-email" } },
+        { "name": "Booking Trend", "request": { "method": "GET", "url": "{{base_url}}/admin/stats/trend?days=30" } },
+        { "name": "Fraud Overview", "request": { "method": "GET", "url": "{{base_url}}/admin/fraud-overview" } }
+      ]
+    },
+    {
+      "name": "Admin - Gate Management",
+      "item": [
+        { "name": "List Gates", "request": { "method": "GET", "url": "{{base_url}}/admin/gates?page=1&pageSize=25" } },
+        { "name": "Gate Detail", "request": { "method": "GET", "url": "{{base_url}}/admin/gates/{{gateId}}" } },
+        {
+          "name": "Create Gate",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/admin/gates",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Gate C\",\n  \"description\": \"Main entrance\"\n}" }
+          }
+        },
+        {
+          "name": "Update Gate",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/admin/gates/{{gateId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Gate C\",\n  \"description\": \"Updated description\"\n}" }
+          }
+        },
+        { "name": "Activate Gate", "request": { "method": "POST", "url": "{{base_url}}/admin/gates/{{gateId}}/activate" } },
+        { "name": "Deactivate Gate", "request": { "method": "POST", "url": "{{base_url}}/admin/gates/{{gateId}}/deactivate" } },
+        { "name": "Delete Gate", "request": { "method": "DELETE", "url": "{{base_url}}/admin/gates/{{gateId}}" } },
+        { "name": "List Gate Users", "request": { "method": "GET", "url": "{{base_url}}/admin/gates/users?page=1&pageSize=25" } },
+        {
+          "name": "Create Gate User",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/admin/gates/users",
+            "body": { "mode": "raw", "raw": "{\n  \"fullName\": \"Gate Staff\",\n  \"email\": \"gate-staff@example.com\",\n  \"password\": \"TestPass123!\",\n  \"gateIds\": [1]\n}" }
+          }
+        },
+        {
+          "name": "Assign Gate User To Gate",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/admin/gates/{{gateId}}/users",
+            "body": { "mode": "raw", "raw": "{\n  \"userId\": {{userId}}\n}" }
+          }
+        },
+        { "name": "Remove Gate User From Gate", "request": { "method": "DELETE", "url": "{{base_url}}/admin/gates/{{gateId}}/users/{{userId}}" } },
+        { "name": "Scan History", "request": { "method": "GET", "url": "{{base_url}}/admin/gates/scan-history?page=1&pageSize=25" } }
+      ]
+    },
+    {
+      "name": "Gate User (runtime scanning)",
+      "item": [
+        { "name": "My Gates", "request": { "method": "GET", "url": "{{base_url}}/gate/my-gates" } },
+        {
+          "name": "Scan Ticket",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/gate/scan",
+            "body": { "mode": "raw", "raw": "{\n  \"gateId\": {{gateId}},\n  \"code\": \"BKG-XXXXXXXX\",\n  \"eventId\": {{eventId}},\n  \"scanType\": \"CheckIn\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "User Preferences",
+      "item": [
+        { "name": "Get Preferences", "request": { "method": "GET", "url": "{{base_url}}/user-preferences" } },
+        {
+          "name": "Save Preferences",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/user-preferences",
+            "body": { "mode": "raw", "raw": "{\n  \"eventTypes\": [\"sports\", \"concert\"],\n  \"musicGenres\": [\"rock\"],\n  \"atmosphere\": \"energetic\",\n  \"attendanceFrequency\": \"monthly\"\n}" }
+          }
+        }
+      ]
+    }
+  ]
+}
