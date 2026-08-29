@@ -16,5 +16,8 @@ public interface IAuthService
     /// </summary>
     Task ForgotPasswordAsync(string email);
 
+    /// <summary>Lets the reset-password page check a token before showing the form, without spending a submit attempt on it.</summary>
+    Task<bool> IsResetTokenValidAsync(string token);
+
     Task<ResetPasswordStatus> ResetPasswordAsync(string token, string newPassword);
 }

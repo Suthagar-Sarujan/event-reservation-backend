@@ -112,21 +112,21 @@ public class AuthService : IAuthService
         await _email.SendPasswordResetAsync(user.UserId, rawToken);
     }
 
+    // Lets the reset-password page tell a merely-present-but-dead token apart
+    // from one worth showing the form for, without waiting for a full
+    // password submission just to find out. Shares the exact same lookup as
+    // ResetPasswordAsync so the two can never disagree about what "valid"
+    // means.
+    public async Task<bool> IsResetTokenValidAsync(string token)
+    {
+        var record = await FindValidTokenAsync(token);
+        return record is not null;
+    }
+
     public async Task<ResetPasswordStatus> ResetPasswordAsync(string token, string newPassword)
     {
-        string tokenHash;
-        try
-        {
-            tokenHash = HashToken(token);
-        }
-        catch (FormatException)
-        {
-            // Not valid base64url - can't possibly match a stored hash.
-            return ResetPasswordStatus.InvalidOrExpiredToken;
-        }
-
-        var record = await _resetTokens.GetByTokenHashAsync(tokenHash);
-        if (record is null || record.UsedAt is not null || record.ExpiresAt < DateTime.UtcNow)
+        var record = await FindValidTokenAsync(token);
+        if (record is null)
         {
             return ResetPasswordStatus.InvalidOrExpiredToken;
         }
@@ -145,6 +145,28 @@ public class AuthService : IAuthService
         await _resetTokens.InvalidateActiveTokensForUserAsync(user.UserId);
 
         return ResetPasswordStatus.Success;
+    }
+
+    private async Task<PasswordResetToken?> FindValidTokenAsync(string token)
+    {
+        string tokenHash;
+        try
+        {
+            tokenHash = HashToken(token);
+        }
+        catch (FormatException)
+        {
+            // Not valid base64url - can't possibly match a stored hash.
+            return null;
+        }
+
+        var record = await _resetTokens.GetByTokenHashAsync(tokenHash);
+        if (record is null || record.UsedAt is not null || record.ExpiresAt < DateTime.UtcNow)
+        {
+            return null;
+        }
+
+        return record;
     }
 
     // 256 bits of randomness, base64url-encoded (no padding) for the emailed

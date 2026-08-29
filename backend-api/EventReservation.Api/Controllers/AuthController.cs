@@ -51,6 +51,18 @@ public class AuthController : ControllerBase
         return Ok(new { message = "If an account exists for this email address, password reset instructions have been sent." });
     }
 
+    // Read-only pre-check so the reset-password page can show the
+    // invalid/expired state immediately instead of waiting for a full
+    // password submission - same anti-enumeration posture as the others,
+    // since this only confirms/denies the token itself, never an email or
+    // account identity.
+    [HttpGet("validate-reset-token")]
+    public async Task<ActionResult> ValidateResetToken([FromQuery] string token)
+    {
+        var isValid = await _auth.IsResetTokenValidAsync(token);
+        return isValid ? NoContent() : BadRequest(new { message = "This password reset link is invalid or has expired." });
+    }
+
     [HttpPost("reset-password")]
     public async Task<ActionResult> ResetPassword(ResetPasswordRequest request)
     {

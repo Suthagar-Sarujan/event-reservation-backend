@@ -160,6 +160,8 @@ public class AuthServiceTests
         // not just that both ran.
         _resetTokens.Setup(r => r.GetByTokenHashAsync(stored!.TokenHash)).ReturnsAsync(stored);
 
+        Assert.True(await _sut.IsResetTokenValidAsync(emailedRawToken!));
+
         var status = await _sut.ResetPasswordAsync(emailedRawToken!, "NewPassword123!");
 
         Assert.Equal(ResetPasswordStatus.Success, status);
@@ -205,6 +207,24 @@ public class AuthServiceTests
 
         Assert.Equal(ResetPasswordStatus.InvalidOrExpiredToken, status);
         _users.Verify(r => r.GetByIdAsync(It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task IsResetTokenValidAsync_AgreesWithResetPasswordAsync_ForValidExpiredAndGarbageTokens()
+    {
+        var valid = new PasswordResetToken { UserId = 7, TokenHash = "valid-hash", ExpiresAt = DateTime.UtcNow.AddMinutes(10), CreatedAt = DateTime.UtcNow };
+        var expired = new PasswordResetToken { UserId = 7, TokenHash = "expired-hash", ExpiresAt = DateTime.UtcNow.AddMinutes(-1), CreatedAt = DateTime.UtcNow.AddMinutes(-20) };
+        _resetTokens.Setup(r => r.GetByTokenHashAsync("valid-hash")).ReturnsAsync(valid);
+        _resetTokens.Setup(r => r.GetByTokenHashAsync("expired-hash")).ReturnsAsync(expired);
+        _resetTokens.Setup(r => r.GetByTokenHashAsync(It.Is<string>(h => h != "valid-hash" && h != "expired-hash"))).ReturnsAsync((PasswordResetToken?)null);
+
+        // These raw tokens don't need to hash to the literal strings above -
+        // IsResetTokenValidAsync only needs to agree with whatever
+        // GetByTokenHashAsync returns for whatever hash it computes, which
+        // the catch-all setup above handles for any token not specifically
+        // wired to "valid"/"expired".
+        Assert.False(await _sut.IsResetTokenValidAsync("some-garbage-token"));
+        Assert.False(await _sut.IsResetTokenValidAsync("not valid base64url!!"));
     }
 
     [Fact]
