@@ -15,11 +15,35 @@ public class OrganizerServiceTests
     private readonly Mock<IBookingRepository> _bookings = new();
     private readonly Mock<IRecommenderClient> _recommender = new();
     private readonly Mock<IFraudRepository> _fraud = new();
+    private readonly Mock<IEmailService> _email = new();
     private readonly OrganizerService _sut;
 
     public OrganizerServiceTests()
     {
-        _sut = new OrganizerService(_events.Object, _venues.Object, _listings.Object, _bookings.Object, _recommender.Object, _fraud.Object);
+        _sut = new OrganizerService(_events.Object, _venues.Object, _listings.Object, _bookings.Object, _recommender.Object, _fraud.Object, _email.Object);
+    }
+
+    [Fact]
+    public async Task ResendBookingEmailAsync_WhenBookingIsOnOrganizersOwnEvent_DelegatesToEmailService()
+    {
+        _bookings.Setup(r => r.IsBookingOnOrganizerEventAsync(5, 10)).ReturnsAsync(true);
+        _email.Setup(e => e.SendBookingConfirmationAsync(5)).ReturnsAsync(EmailSendResult.Sent);
+
+        var result = await _sut.ResendBookingEmailAsync(5, 10);
+
+        Assert.Equal(EmailSendResult.Sent, result);
+        _email.Verify(e => e.SendBookingConfirmationAsync(5), Times.Once);
+    }
+
+    [Fact]
+    public async Task ResendBookingEmailAsync_WhenBookingIsNotOnOrganizersEvent_ReturnsBookingNotFoundWithoutCallingEmailService()
+    {
+        _bookings.Setup(r => r.IsBookingOnOrganizerEventAsync(5, 10)).ReturnsAsync(false);
+
+        var result = await _sut.ResendBookingEmailAsync(5, 10);
+
+        Assert.Equal(EmailSendResult.BookingNotFound, result);
+        _email.Verify(e => e.SendBookingConfirmationAsync(It.IsAny<int>()), Times.Never);
     }
 
     private static CreateEventRequest MakeCreateRequest(int? venueId = 1) => new(

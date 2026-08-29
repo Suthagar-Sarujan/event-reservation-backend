@@ -66,6 +66,18 @@ public class BookingsController : ControllerBase
         };
     }
 
+    [HttpPost("{id:int}/resend-email")]
+    public async Task<ActionResult> ResendEmail(int id)
+    {
+        var result = await _bookingService.ResendConfirmationEmailAsync(id, CurrentUserId);
+        return result switch
+        {
+            EmailSendResult.BookingNotFound => NotFound(),
+            EmailSendResult.Failed => StatusCode(502, new { message = "Could not send the confirmation email. Please try again shortly." }),
+            _ => NoContent(),
+        };
+    }
+
     // Stored/used for fraud-detection signals only (velocity/IP-reuse scoring),
     // never exposed to the customer-facing API - see README's fraud-detection
     // section for the privacy rule this follows. X-Forwarded-For is honored

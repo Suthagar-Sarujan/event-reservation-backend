@@ -41,7 +41,9 @@ public record AdminBookingDto(
     int Quantity,
     decimal TotalAmount,
     string Status,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    string EmailStatus,
+    DateTime? EmailSentAt
 );
 
 public record TrendPointDto(DateTime Date, int Bookings, decimal Revenue);

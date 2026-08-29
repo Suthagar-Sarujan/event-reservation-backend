@@ -16,6 +16,17 @@ public interface IBookingRepository
     Task<Booking?> GetForVerificationByReferenceAsync(string bookingReference);
 
     /// <summary>
+    /// Records the outcome of a booking-confirmation email attempt (see
+    /// IEmailService/SmtpEmailService) - status, incremented attempt count,
+    /// and (on success only) the sent timestamp. Never throws for a missing
+    /// booking id; callers are expected to have already confirmed it exists.
+    /// </summary>
+    Task MarkEmailResultAsync(int bookingId, BookingEmailStatus status, int attempts, DateTime? sentAtUtc);
+
+    /// <summary>True if the booking exists and belongs to an event this organizer created.</summary>
+    Task<bool> IsBookingOnOrganizerEventAsync(int bookingId, int organizerUserId);
+
+    /// <summary>
     /// Marks a booking checked in, atomically and only once: returns false
     /// (without changing anything) if it was already checked in, so a second
     /// scan of the same ticket is rejected rather than silently re-approved.

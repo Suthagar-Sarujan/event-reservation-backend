@@ -13,6 +13,7 @@ public class AdminService : IAdminService
     private readonly IFraudRepository _fraud;
     private readonly IGateRepository _gates;
     private readonly IGateScanRepository _gateScans;
+    private readonly IEmailService _email;
 
     public AdminService(
         IUserRepository users,
@@ -21,7 +22,8 @@ public class AdminService : IAdminService
         IRecommenderClient recommender,
         IFraudRepository fraud,
         IGateRepository gates,
-        IGateScanRepository gateScans)
+        IGateScanRepository gateScans,
+        IEmailService email)
     {
         _users = users;
         _events = events;
@@ -30,6 +32,7 @@ public class AdminService : IAdminService
         _fraud = fraud;
         _gates = gates;
         _gateScans = gateScans;
+        _email = email;
     }
 
     public async Task<AdminStatsDto> GetStatsAsync()
@@ -151,11 +154,17 @@ public class AdminService : IAdminService
             b.Items.Sum(i => i.Quantity),
             b.TotalAmount,
             b.Status.ToString(),
-            b.CreatedAt
+            b.CreatedAt,
+            b.EmailStatus.ToString(),
+            b.EmailSentAt
         )).ToList();
 
         return (total, page, pageSize, items);
     }
+
+    // Admin has no ownership restriction - can resend for any booking platform-wide.
+    public Task<EmailSendResult> ResendBookingEmailAsync(int bookingId) =>
+        _email.SendBookingConfirmationAsync(bookingId);
 
     public async Task<List<TrendPointDto>> GetBookingTrendAsync(int days)
     {

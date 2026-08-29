@@ -10,13 +10,15 @@ public class BookingService : IBookingService
     private readonly IBookingRepository _bookings;
     private readonly IFraudDetectionService _fraud;
     private readonly IQrCodeService _qr;
+    private readonly IEmailService _email;
     private readonly FraudOptions _fraudOptions;
 
-    public BookingService(IBookingRepository bookings, IFraudDetectionService fraud, IQrCodeService qr, IOptions<FraudOptions> fraudOptions)
+    public BookingService(IBookingRepository bookings, IFraudDetectionService fraud, IQrCodeService qr, IEmailService email, IOptions<FraudOptions> fraudOptions)
     {
         _bookings = bookings;
         _fraud = fraud;
         _qr = qr;
+        _email = email;
         _fraudOptions = fraudOptions.Value;
     }
 
@@ -58,6 +60,12 @@ public class BookingService : IBookingService
         {
             await _fraud.LogAsync(userId, eventId.Value, result.Booking!.BookingId, ipAddress, request.Quantity,
                 evaluation.Score, evaluation.Level, evaluation.Decision, evaluation.ReasonCodes);
+
+            // Best-effort, post-commit side effect - SendBookingConfirmationAsync
+            // never throws and its result is intentionally discarded here: a
+            // failed auto-send is not a booking failure, just tracked on the
+            // row (EmailStatus) for later resend by the customer/Admin/Organizer.
+            _ = await _email.SendBookingConfirmationAsync(result.Booking!.BookingId);
         }
 
         var dto = result.Booking is null ? null : ToDto(result.Booking);
@@ -89,6 +97,18 @@ public class BookingService : IBookingService
             qrDataUri,
             booking.Items.Select(i => new BookingItemDto(i.ListingId, i.Listing?.SectionFull ?? i.Listing?.Section, i.Quantity, i.UnitPrice, i.Subtotal)).ToList()
         );
+    }
+
+    // Ownership-scoped the same way GetTicketAsync is - a customer can only
+    // resend the confirmation for their own booking. BookingNotFound is
+    // reused for "not yours" too, so the controller returns 404 either way
+    // and never leaks whether a booking id exists for someone else.
+    public async Task<EmailSendResult> ResendConfirmationEmailAsync(int bookingId, int userId)
+    {
+        var booking = await _bookings.GetByIdForUserAsync(bookingId, userId);
+        if (booking is null) return EmailSendResult.BookingNotFound;
+
+        return await _email.SendBookingConfirmationAsync(bookingId);
     }
 
     public async Task<BookingCancellationStatus> CancelBookingAsync(int bookingId, int userId)
@@ -175,6 +195,8 @@ public class BookingService : IBookingService
         b.CreatedAt,
         b.Items.Select(i => new BookingItemDto(i.ListingId, null, i.Quantity, i.UnitPrice, i.Subtotal)).ToList(),
         b.PaymentReference,
-        b.CheckedInAt
+        b.CheckedInAt,
+        b.EmailStatus.ToString(),
+        b.EmailSentAt
     );
 }

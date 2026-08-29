@@ -20,7 +20,9 @@ public record BookingResponseDto(
     DateTime CreatedAt,
     IReadOnlyList<BookingItemDto> Items,
     string? PaymentReference,
-    DateTime? CheckedInAt
+    DateTime? CheckedInAt,
+    string EmailStatus,
+    DateTime? EmailSentAt
 );
 
 public record TicketDto(

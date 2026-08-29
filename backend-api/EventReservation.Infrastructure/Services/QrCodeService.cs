@@ -61,13 +61,15 @@ public class QrCodeService : IQrCodeService
         return parts.Length == 2 && int.TryParse(parts[0], out bookingId);
     }
 
-    public string GeneratePngDataUri(string content)
+    public string GeneratePngDataUri(string content) =>
+        $"data:image/png;base64,{Convert.ToBase64String(GeneratePngBytes(content))}";
+
+    public byte[] GeneratePngBytes(string content)
     {
         using var generator = new QRCodeGenerator();
         using var qrCodeData = generator.CreateQrCode(content, QRCodeGenerator.ECCLevel.Q);
         var pngQrCode = new PngByteQRCode(qrCodeData);
-        var bytes = pngQrCode.GetGraphic(10);
-        return $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
+        return pngQrCode.GetGraphic(10);
     }
 
     private byte[] Sign(string payload) => HMACSHA256.HashData(_secretBytes, Encoding.UTF8.GetBytes(payload));

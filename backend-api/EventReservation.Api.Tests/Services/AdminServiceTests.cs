@@ -16,11 +16,23 @@ public class AdminServiceTests
     private readonly Mock<IFraudRepository> _fraud = new();
     private readonly Mock<IGateRepository> _gates = new();
     private readonly Mock<IGateScanRepository> _gateScans = new();
+    private readonly Mock<IEmailService> _email = new();
     private readonly AdminService _sut;
 
     public AdminServiceTests()
     {
-        _sut = new AdminService(_users.Object, _events.Object, _bookings.Object, _recommender.Object, _fraud.Object, _gates.Object, _gateScans.Object);
+        _sut = new AdminService(_users.Object, _events.Object, _bookings.Object, _recommender.Object, _fraud.Object, _gates.Object, _gateScans.Object, _email.Object);
+    }
+
+    [Fact]
+    public async Task ResendBookingEmailAsync_DelegatesToEmailServiceWithNoOwnershipRestriction()
+    {
+        _email.Setup(e => e.SendBookingConfirmationAsync(42)).ReturnsAsync(EmailSendResult.Sent);
+
+        var result = await _sut.ResendBookingEmailAsync(42);
+
+        Assert.Equal(EmailSendResult.Sent, result);
+        _email.Verify(e => e.SendBookingConfirmationAsync(42), Times.Once);
     }
 
     [Fact]

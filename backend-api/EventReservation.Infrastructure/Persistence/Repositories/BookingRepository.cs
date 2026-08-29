@@ -130,7 +130,7 @@ public class BookingRepository : IBookingRepository
     public Task<Booking?> GetForVerificationAsync(int bookingId) =>
         _db.Bookings.AsNoTracking()
             .Where(b => b.BookingId == bookingId)
-            .Include(b => b.Event)
+            .Include(b => b.Event).ThenInclude(e => e!.Venue)
             .Include(b => b.User)
             .Include(b => b.Items)
             .FirstOrDefaultAsync();
@@ -138,10 +138,28 @@ public class BookingRepository : IBookingRepository
     public Task<Booking?> GetForVerificationByReferenceAsync(string bookingReference) =>
         _db.Bookings.AsNoTracking()
             .Where(b => b.BookingReference == bookingReference)
-            .Include(b => b.Event)
+            .Include(b => b.Event).ThenInclude(e => e!.Venue)
             .Include(b => b.User)
             .Include(b => b.Items)
             .FirstOrDefaultAsync();
+
+    // A plain tracked update (rather than TryMarkCheckedInAsync's raw-SQL
+    // conditional guard) - there's no concurrency race to guard against here,
+    // just recording the outcome of a best-effort side effect.
+    public async Task MarkEmailResultAsync(int bookingId, BookingEmailStatus status, int attempts, DateTime? sentAtUtc)
+    {
+        var booking = await _db.Bookings.FirstOrDefaultAsync(b => b.BookingId == bookingId);
+        if (booking is null) return;
+
+        booking.EmailStatus = status;
+        booking.EmailAttempts = attempts;
+        booking.EmailSentAt = sentAtUtc;
+        await _db.SaveChangesAsync();
+    }
+
+    public Task<bool> IsBookingOnOrganizerEventAsync(int bookingId, int organizerUserId) =>
+        _db.Bookings.AsNoTracking()
+            .AnyAsync(b => b.BookingId == bookingId && b.Event!.CreatedByUserId == organizerUserId);
 
     public async Task<bool> TryMarkCheckedInAsync(int bookingId)
     {

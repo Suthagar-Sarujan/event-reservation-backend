@@ -12,6 +12,9 @@ public interface IOrganizerService
     Task<OrganizerEventDetailDto?> AddListingAsync(long eventId, int organizerUserId, CreateListingRequest request);
     Task<OrganizerListingUpdateResult> UpdateListingAsync(string listingId, int organizerUserId, UpdateListingRequest request);
     Task<List<OrganizerBookingDto>?> GetEventBookingsAsync(long eventId, int organizerUserId);
+
+    /// <summary>Scoped so an organizer can only resend email for bookings on events they created. Returns BookingNotFound otherwise (never distinguishing "doesn't exist" from "not yours").</summary>
+    Task<EmailSendResult> ResendBookingEmailAsync(int bookingId, int organizerUserId);
     Task<List<TrendPointDto>> GetSalesTrendAsync(int organizerUserId, int days);
     Task<FraudOverviewDto> GetFraudOverviewAsync(int organizerUserId);
 }

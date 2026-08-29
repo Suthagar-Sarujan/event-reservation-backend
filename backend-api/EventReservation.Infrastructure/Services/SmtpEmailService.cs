@@ -1,0 +1,117 @@
+using EventReservation.Application.Repositories;
+using EventReservation.Application.Services;
+using EventReservation.Domain.Entities;
+using MailKit.Net.Smtp;
+using MailKit.Security;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using MimeKit;
+using MimeKit.Utils;
+
+namespace EventReservation.Infrastructure.Services;
+
+public class SmtpEmailService : IEmailService
+{
+    private readonly IBookingRepository _bookings;
+    private readonly IQrCodeService _qr;
+    private readonly SmtpOptions _options;
+    private readonly IConfiguration _configuration;
+    private readonly ILogger<SmtpEmailService> _logger;
+
+    public SmtpEmailService(
+        IBookingRepository bookings,
+        IQrCodeService qr,
+        IOptions<SmtpOptions> options,
+        IConfiguration configuration,
+        ILogger<SmtpEmailService> logger)
+    {
+        _bookings = bookings;
+        _qr = qr;
+        _options = options.Value;
+        _configuration = configuration;
+        _logger = logger;
+    }
+
+    public async Task<EmailSendResult> SendBookingConfirmationAsync(int bookingId)
+    {
+        var booking = await _bookings.GetForVerificationAsync(bookingId);
+        if (booking is null || booking.Event is null || booking.User is null)
+        {
+            return EmailSendResult.BookingNotFound;
+        }
+
+        try
+        {
+            var token = _qr.GenerateToken(booking.BookingId, booking.BookingReference);
+            var qrBytes = _qr.GeneratePngBytes(token);
+
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(_options.FromDisplayName, _options.FromAddress));
+            message.To.Add(new MailboxAddress(booking.User.FullName, booking.User.Email));
+            message.Subject = $"\U0001F39F️ Eventify – Your Booking is Confirmed | Booking ID: {booking.BookingReference}";
+
+            var builder = new BodyBuilder();
+            var qrImage = builder.LinkedResources.Add("qr-code.png", qrBytes, new ContentType("image", "png"));
+            qrImage.ContentId = MimeUtils.GenerateMessageId();
+
+            var frontendBaseUrl = _configuration["Frontend:BaseUrl"] ?? "http://localhost:4200";
+            var ticketUrl = $"{frontendBaseUrl.TrimEnd('/')}/bookings/{booking.BookingId}/ticket";
+            var quantity = booking.Items.Sum(i => i.Quantity);
+
+            builder.HtmlBody = BuildHtmlBody(booking, qrImage.ContentId, ticketUrl, quantity);
+            message.Body = builder.ToMessageBody();
+
+            using var client = new SmtpClient();
+            await client.ConnectAsync(_options.Host, _options.Port, SecureSocketOptions.StartTls);
+            await client.AuthenticateAsync(_options.User, _options.Password);
+            await client.SendAsync(message);
+            await client.DisconnectAsync(true);
+
+            await _bookings.MarkEmailResultAsync(bookingId, BookingEmailStatus.Sent, booking.EmailAttempts + 1, DateTime.UtcNow);
+            return EmailSendResult.Sent;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send booking confirmation email for booking {BookingId}", bookingId);
+            await _bookings.MarkEmailResultAsync(bookingId, BookingEmailStatus.Failed, booking.EmailAttempts + 1, null);
+            return EmailSendResult.Failed;
+        }
+    }
+
+    private static string BuildHtmlBody(Booking booking, string qrContentId, string ticketUrl, int quantity)
+    {
+        var venueName = booking.Event!.Venue?.Name ?? "TBA";
+        return $$"""
+            <div style="font-family: Arial, Helvetica, sans-serif; background-color: #f4f4f7; padding: 24px;">
+              <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e5e5e5;">
+                <div style="background-color: #4f46e5; padding: 24px; text-align: center;">
+                  <span style="font-size: 24px; font-weight: bold; color: #ffffff; letter-spacing: 0.5px;">Eventify</span>
+                </div>
+                <div style="padding: 24px;">
+                  <p style="font-size: 16px; color: #111827;">Hi {{booking.User!.FullName}},</p>
+                  <p style="font-size: 15px; color: #374151;">Your booking has been successfully confirmed! Here are your booking details:</p>
+                  <table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; color: #111827;">
+                    <tr><td style="padding: 6px 0; color: #6b7280;">Event</td><td style="padding: 6px 0; text-align: right; font-weight: bold;">{{booking.Event.Name}}</td></tr>
+                    <tr><td style="padding: 6px 0; color: #6b7280;">Date</td><td style="padding: 6px 0; text-align: right;">{{booking.Event.DatetimeUtc:f}}</td></tr>
+                    <tr><td style="padding: 6px 0; color: #6b7280;">Venue</td><td style="padding: 6px 0; text-align: right;">{{venueName}}</td></tr>
+                    <tr><td style="padding: 6px 0; color: #6b7280;">Tickets</td><td style="padding: 6px 0; text-align: right;">{{quantity}}</td></tr>
+                    <tr><td style="padding: 6px 0; color: #6b7280;">Booking ID</td><td style="padding: 6px 0; text-align: right; font-weight: bold;">{{booking.BookingReference}}</td></tr>
+                    <tr><td style="padding: 6px 0; color: #6b7280;">Booking Date</td><td style="padding: 6px 0; text-align: right;">{{booking.CreatedAt:f}}</td></tr>
+                    <tr><td style="padding: 6px 0; color: #6b7280;">Status</td><td style="padding: 6px 0; text-align: right; color: #059669; font-weight: bold;">CONFIRMED</td></tr>
+                    <tr><td style="padding: 6px 0; color: #6b7280;">Total Amount</td><td style="padding: 6px 0; text-align: right; font-weight: bold;">{{booking.TotalAmount:C}}</td></tr>
+                  </table>
+                  <div style="text-align: center; margin: 24px 0;">
+                    <img src="cid:{{qrContentId}}" alt="Booking QR Code" style="width: 180px; height: 180px; border: 1px solid #e5e5e5; padding: 8px; border-radius: 4px;" />
+                    <p style="font-size: 13px; color: #6b7280; margin-top: 8px;">Please present the QR code at the event entrance for ticket verification.</p>
+                  </div>
+                  <div style="text-align: center; margin: 24px 0;">
+                    <a href="{{ticketUrl}}" style="background-color: #4f46e5; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-size: 14px; font-weight: bold; display: inline-block;">View Digital Ticket</a>
+                  </div>
+                  <p style="font-size: 13px; color: #9ca3af; text-align: center; margin-top: 32px;">Eventify – Smart Event Ticketing</p>
+                </div>
+              </div>
+            </div>
+            """;
+    }
+}

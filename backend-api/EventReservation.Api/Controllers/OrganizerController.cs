@@ -97,6 +97,18 @@ public class OrganizerController : ControllerBase
         return bookings is null ? NotFound() : Ok(bookings);
     }
 
+    [HttpPost("bookings/{id:int}/resend-email")]
+    public async Task<ActionResult> ResendBookingEmail(int id)
+    {
+        var result = await _organizerService.ResendBookingEmailAsync(id, CurrentUserId);
+        return result switch
+        {
+            EmailSendResult.BookingNotFound => NotFound(),
+            EmailSendResult.Failed => StatusCode(502, new { message = "Could not send the confirmation email. Please try again shortly." }),
+            _ => NoContent(),
+        };
+    }
+
     [HttpGet("sales-trend")]
     public async Task<ActionResult<List<TrendPointDto>>> GetSalesTrend([FromQuery] int days = 30)
     {

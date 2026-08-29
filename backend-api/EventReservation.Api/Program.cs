@@ -28,6 +28,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 
 builder.Services.Configure<FraudOptions>(builder.Configuration.GetSection("Fraud"));
+builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection("Smtp"));
 
 // Data access layer
 builder.Services.AddScoped<IUserRepository, UserRepository>();
@@ -52,6 +53,9 @@ builder.Services.AddScoped<IUserPreferenceService, UserPreferenceService>();
 builder.Services.AddScoped<IDemandPredictionService, DemandPredictionService>();
 builder.Services.AddScoped<IGateService, GateService>();
 builder.Services.AddSingleton<IQrCodeService, QrCodeService>();
+// Scoped (not singleton) - depends on IBookingRepository, which is backed by
+// the scoped/per-request AppDbContext.
+builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 
 builder.Services.AddHttpClient<IRecommenderClient, RecommenderClient>(client =>
 {

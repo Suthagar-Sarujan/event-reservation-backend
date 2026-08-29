@@ -88,5 +88,7 @@ public record OrganizerBookingDto(
     int Quantity,
     decimal TotalAmount,
     string Status,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    string EmailStatus,
+    DateTime? EmailSentAt
 );

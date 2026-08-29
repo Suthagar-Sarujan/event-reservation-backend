@@ -169,6 +169,12 @@ public class AppDbContext : DbContext
             e.Property(b => b.PaymentReference).HasColumnName("payment_reference").HasMaxLength(20);
             e.Property(b => b.CheckedInAt).HasColumnName("checked_in_at");
             e.Property(b => b.CheckedOutAt).HasColumnName("checked_out_at");
+            e.Property(b => b.EmailStatus).HasColumnName("email_status").HasMaxLength(255)
+                .HasConversion(
+                    v => v == BookingEmailStatus.Sent ? "sent" : v == BookingEmailStatus.Failed ? "failed" : "pending",
+                    v => v == "sent" ? BookingEmailStatus.Sent : v == "failed" ? BookingEmailStatus.Failed : BookingEmailStatus.Pending);
+            e.Property(b => b.EmailSentAt).HasColumnName("email_sent_at");
+            e.Property(b => b.EmailAttempts).HasColumnName("email_attempts");
             e.HasOne(b => b.User).WithMany(u => u.Bookings).HasForeignKey(b => b.UserId);
             e.HasOne(b => b.Event).WithMany().HasForeignKey(b => b.EventId);
         });

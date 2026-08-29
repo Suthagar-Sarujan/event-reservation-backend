@@ -19,4 +19,7 @@ public interface IQrCodeService
 
     /// <summary>Renders the given content as a PNG QR code, returned as a data: URI ready for an &lt;img src&gt;.</summary>
     string GeneratePngDataUri(string content);
+
+    /// <summary>Renders the given content as a PNG QR code and returns the raw PNG bytes (e.g. for a MIME email's inline CID attachment, where a data: URI isn't reliably rendered).</summary>
+    byte[] GeneratePngBytes(string content);
 }

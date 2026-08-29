@@ -12,6 +12,10 @@ public interface IAdminService
     Task<bool> CancelEventAsync(long id);
     Task<AdminEventUpdateStatus> UpdateEventAsync(long id, UpdateEventRequest request);
     Task<(int Total, int Page, int PageSize, List<AdminBookingDto> Items)> GetBookingsAsync(string? search, int page, int pageSize);
+
+    /// <summary>Admin has no ownership restriction - can resend for any booking platform-wide.</summary>
+    Task<EmailSendResult> ResendBookingEmailAsync(int bookingId);
+
     Task<List<TrendPointDto>> GetBookingTrendAsync(int days);
     Task<FraudOverviewDto> GetFraudOverviewAsync();
 

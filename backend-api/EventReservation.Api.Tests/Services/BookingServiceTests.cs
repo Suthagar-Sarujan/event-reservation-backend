@@ -13,6 +13,7 @@ public class BookingServiceTests
     private readonly Mock<IBookingRepository> _bookings = new();
     private readonly Mock<IFraudDetectionService> _fraud = new();
     private readonly Mock<IQrCodeService> _qr = new();
+    private readonly Mock<IEmailService> _email = new();
     private readonly BookingService _sut;
 
     public BookingServiceTests()
@@ -23,7 +24,8 @@ public class BookingServiceTests
         // BookingServiceFraudTests for that).
         _fraud.Setup(f => f.EvaluateAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>()))
             .ReturnsAsync(new FraudEvaluation(RiskDecision.Allowed, 0, RiskLevel.Low, []));
-        _sut = new BookingService(_bookings.Object, _fraud.Object, _qr.Object, Options.Create(new FraudOptions()));
+        _email.Setup(e => e.SendBookingConfirmationAsync(It.IsAny<int>())).ReturnsAsync(EmailSendResult.Sent);
+        _sut = new BookingService(_bookings.Object, _fraud.Object, _qr.Object, _email.Object, Options.Create(new FraudOptions()));
     }
 
     [Fact]
@@ -110,6 +112,60 @@ public class BookingServiceTests
         Assert.Single(dto.Items);
         Assert.Equal(50m, dto.Items[0].Subtotal);
         _fraud.Verify(f => f.LogAsync(1, 100L, 5, null, 2, 0, RiskLevel.Low, RiskDecision.Allowed, It.IsAny<IEnumerable<string>>()), Times.Once);
+        _email.Verify(e => e.SendBookingConfirmationAsync(5), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateBookingAsync_WhenEmailSendFails_StillReportsBookingCreationAsSuccess()
+    {
+        var booking = new Booking
+        {
+            BookingId = 5,
+            BookingReference = "BKG-ABC123",
+            EventId = 100,
+            Status = BookingStatus.Confirmed,
+            TotalAmount = 50m,
+            CreatedAt = new DateTime(2026, 1, 1),
+            Event = new Event { EventId = 100, Name = "Test Event", DatetimeUtc = new DateTime(2026, 6, 1) },
+            Items = [new BookingItem { ListingId = "listing-1", Quantity = 2, UnitPrice = 25m, Subtotal = 50m }],
+        };
+        _bookings.Setup(r => r.GetEventIdForListingAsync("listing-1")).ReturnsAsync(100L);
+        _bookings
+            .Setup(r => r.CreateAsync(1, "listing-1", 2, It.IsAny<int>()))
+            .ReturnsAsync(new BookingCreationResult(BookingCreationStatus.Success, booking, null));
+        _email.Setup(e => e.SendBookingConfirmationAsync(5)).ReturnsAsync(EmailSendResult.Failed);
+
+        var (status, dto, _) = await _sut.CreateBookingAsync(1, new CreateBookingRequest("listing-1", 2), null);
+
+        // A failed auto-send must never turn a successful booking into a failure -
+        // it's tracked on the booking row (EmailStatus) for later resend, not
+        // surfaced as a booking error.
+        Assert.Equal(BookingCreationStatus.Success, status);
+        Assert.NotNull(dto);
+    }
+
+    [Fact]
+    public async Task ResendConfirmationEmailAsync_WhenBookingIsOwnedByCaller_DelegatesToEmailService()
+    {
+        var booking = new Booking { BookingId = 5, BookingReference = "BKG-ABC123", UserId = 9 };
+        _bookings.Setup(r => r.GetByIdForUserAsync(5, 9)).ReturnsAsync(booking);
+        _email.Setup(e => e.SendBookingConfirmationAsync(5)).ReturnsAsync(EmailSendResult.Sent);
+
+        var result = await _sut.ResendConfirmationEmailAsync(5, 9);
+
+        Assert.Equal(EmailSendResult.Sent, result);
+        _email.Verify(e => e.SendBookingConfirmationAsync(5), Times.Once);
+    }
+
+    [Fact]
+    public async Task ResendConfirmationEmailAsync_WhenBookingNotFoundOrNotOwned_ReturnsBookingNotFoundWithoutCallingEmailService()
+    {
+        _bookings.Setup(r => r.GetByIdForUserAsync(5, 9)).ReturnsAsync((Booking?)null);
+
+        var result = await _sut.ResendConfirmationEmailAsync(5, 9);
+
+        Assert.Equal(EmailSendResult.BookingNotFound, result);
+        _email.Verify(e => e.SendBookingConfirmationAsync(It.IsAny<int>()), Times.Never);
     }
 
     [Fact]

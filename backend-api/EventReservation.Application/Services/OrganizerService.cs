@@ -13,6 +13,7 @@ public class OrganizerService : IOrganizerService
     private readonly IBookingRepository _bookings;
     private readonly IRecommenderClient _recommender;
     private readonly IFraudRepository _fraud;
+    private readonly IEmailService _email;
 
     public OrganizerService(
         IEventRepository events,
@@ -20,7 +21,8 @@ public class OrganizerService : IOrganizerService
         IListingRepository listings,
         IBookingRepository bookings,
         IRecommenderClient recommender,
-        IFraudRepository fraud)
+        IFraudRepository fraud,
+        IEmailService email)
     {
         _events = events;
         _venues = venues;
@@ -28,6 +30,7 @@ public class OrganizerService : IOrganizerService
         _bookings = bookings;
         _recommender = recommender;
         _fraud = fraud;
+        _email = email;
     }
 
     private static string GenerateListingId()
@@ -204,8 +207,22 @@ public class OrganizerService : IOrganizerService
             b.Items.Sum(i => i.Quantity),
             b.TotalAmount,
             b.Status.ToString(),
-            b.CreatedAt
+            b.CreatedAt,
+            b.EmailStatus.ToString(),
+            b.EmailSentAt
         )).ToList();
+    }
+
+    // Scoped so an organizer can only resend email for bookings on events
+    // they created - never any booking platform-wide. BookingNotFound is
+    // reused for "not on your event" too, matching the ownership scoping
+    // already applied to GetEventBookingsAsync.
+    public async Task<EmailSendResult> ResendBookingEmailAsync(int bookingId, int organizerUserId)
+    {
+        var onOwnEvent = await _bookings.IsBookingOnOrganizerEventAsync(bookingId, organizerUserId);
+        if (!onOwnEvent) return EmailSendResult.BookingNotFound;
+
+        return await _email.SendBookingConfirmationAsync(bookingId);
     }
 
     public async Task<List<TrendPointDto>> GetSalesTrendAsync(int organizerUserId, int days)

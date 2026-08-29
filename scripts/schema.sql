@@ -162,6 +162,9 @@ CREATE TABLE bookings (
     payment_reference             VARCHAR(20) NULL,  -- mock payment confirmation id, no real gateway is integrated
     checked_in_at                   DATETIME NULL,   -- set once, at the door, by TicketVerificationController
     checked_out_at                  DATETIME NULL,   -- set once, by a Gate User's check-out scan, only after checked_in_at is set
+    email_status                     VARCHAR(255) NOT NULL DEFAULT 'pending',  -- 'pending' | 'sent' | 'failed', see SmtpEmailService
+    email_sent_at                      DATETIME NULL,   -- set on a successful confirmation-email send, cleared to NULL on a failed attempt
+    email_attempts                       INT NOT NULL DEFAULT 0,  -- incremented on every send attempt, auto or resend
     CONSTRAINT fk_booking_user FOREIGN KEY (user_id) REFERENCES users(user_id),
     CONSTRAINT fk_booking_event FOREIGN KEY (event_id) REFERENCES events(event_id),
     INDEX idx_bookings_user (user_id)

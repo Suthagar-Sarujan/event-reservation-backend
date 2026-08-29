@@ -6,6 +6,13 @@ public enum BookingStatus
     Cancelled,
 }
 
+public enum BookingEmailStatus
+{
+    Pending,
+    Sent,
+    Failed,
+}
+
 public class Booking
 {
     public int BookingId { get; set; }
@@ -31,6 +38,13 @@ public class Booking
     // and only once - a second check-out attempt is rejected the same way a
     // second check-in is.
     public DateTime? CheckedOutAt { get; set; }
+
+    // Tracks the booking-confirmation email (see IEmailService/SmtpEmailService).
+    // Sending never blocks or fails a booking - these fields are best-effort
+    // status for the customer/Admin/Organizer to see and, if needed, resend from.
+    public BookingEmailStatus EmailStatus { get; set; } = BookingEmailStatus.Pending;
+    public DateTime? EmailSentAt { get; set; }
+    public int EmailAttempts { get; set; } = 0;
 
     public User? User { get; set; }
     public Event? Event { get; set; }

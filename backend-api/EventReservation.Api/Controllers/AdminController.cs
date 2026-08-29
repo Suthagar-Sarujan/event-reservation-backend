@@ -88,6 +88,18 @@ public class AdminController : ControllerBase
         return Ok(new { total, page = resolvedPage, pageSize = resolvedPageSize, items });
     }
 
+    [HttpPost("bookings/{id:int}/resend-email")]
+    public async Task<ActionResult> ResendBookingEmail(int id)
+    {
+        var result = await _adminService.ResendBookingEmailAsync(id);
+        return result switch
+        {
+            EmailSendResult.BookingNotFound => NotFound(),
+            EmailSendResult.Failed => StatusCode(502, new { message = "Could not send the confirmation email. Please try again shortly." }),
+            _ => NoContent(),
+        };
+    }
+
     [HttpGet("stats/trend")]
     public async Task<ActionResult<List<TrendPointDto>>> GetBookingTrend([FromQuery] int days = 30)
     {
