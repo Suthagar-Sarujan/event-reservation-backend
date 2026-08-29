@@ -371,7 +371,7 @@ public class AdminService : IAdminService
     private static GateScanHistoryDto ToGateScanHistoryDto(GateScanHistory s) => new(
         s.ScanId,
         s.GateId,
-        s.Gate?.Name ?? "",
+        s.Gate?.Name ?? "Unknown gate",
         s.ScannedByUserId,
         s.ScannedByUser?.FullName ?? "",
         s.BookingId,

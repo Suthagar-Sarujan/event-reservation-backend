@@ -1,3 +1,4 @@
+using System.Reflection;
 using EventReservation.Application.Repositories;
 using EventReservation.Application.Services;
 using EventReservation.Domain.Entities;
@@ -55,11 +56,14 @@ public class SmtpEmailService : IEmailService
             var qrImage = builder.LinkedResources.Add("qr-code.png", qrBytes, new ContentType("image", "png"));
             qrImage.ContentId = MimeUtils.GenerateMessageId();
 
+            var logoImage = builder.LinkedResources.Add("eventify-logo.png", LoadLogoBytes(), new ContentType("image", "png"));
+            logoImage.ContentId = MimeUtils.GenerateMessageId();
+
             var frontendBaseUrl = _configuration["Frontend:BaseUrl"] ?? "http://localhost:4200";
             var ticketUrl = $"{frontendBaseUrl.TrimEnd('/')}/bookings/{booking.BookingId}/ticket";
             var quantity = booking.Items.Sum(i => i.Quantity);
 
-            builder.HtmlBody = BuildHtmlBody(booking, qrImage.ContentId, ticketUrl, quantity);
+            builder.HtmlBody = BuildHtmlBody(booking, qrImage.ContentId, logoImage.ContentId, ticketUrl, quantity);
             message.Body = builder.ToMessageBody();
 
             using var client = new SmtpClient();
@@ -79,14 +83,35 @@ public class SmtpEmailService : IEmailService
         }
     }
 
-    private static string BuildHtmlBody(Booking booking, string qrContentId, string ticketUrl, int quantity)
+    // Compiled into the assembly (see the EmbeddedResource item in the .csproj)
+    // rather than read from a file path, so this can never go missing at
+    // runtime regardless of working directory or how the app is published.
+    private static byte[] LoadLogoBytes()
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        var resourceName = assembly.GetManifestResourceNames().First(n => n.EndsWith("logo-white.png", StringComparison.Ordinal));
+        using var stream = assembly.GetManifestResourceStream(resourceName)!;
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
+    }
+
+    // Matches the frontend's --gradient-brand token (styles.css:
+    // linear-gradient(120deg, #0b2062 0%, #071a47 45%, #2b4c92 100%)) - email
+    // HTML can't reference CSS custom properties, so the same navy values are
+    // hardcoded here to keep the two in visual sync. A solid background-color
+    // fallback is included first for clients (older Outlook) that don't
+    // render CSS gradients.
+    private const string BrandGradientStyle = "background-color: #0b2062; background-image: linear-gradient(120deg, #0b2062 0%, #071a47 45%, #2b4c92 100%);";
+
+    private static string BuildHtmlBody(Booking booking, string qrContentId, string logoContentId, string ticketUrl, int quantity)
     {
         var venueName = booking.Event!.Venue?.Name ?? "TBA";
         return $$"""
             <div style="font-family: Arial, Helvetica, sans-serif; background-color: #f4f4f7; padding: 24px;">
               <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e5e5e5;">
-                <div style="background-color: #4f46e5; padding: 24px; text-align: center;">
-                  <span style="font-size: 24px; font-weight: bold; color: #ffffff; letter-spacing: 0.5px;">Eventify</span>
+                <div style="{{BrandGradientStyle}} padding: 24px; text-align: center;">
+                  <img src="cid:{{logoContentId}}" alt="Eventify" style="height: 36px;" />
                 </div>
                 <div style="padding: 24px;">
                   <p style="font-size: 16px; color: #111827;">Hi {{booking.User!.FullName}},</p>
@@ -106,7 +131,7 @@ public class SmtpEmailService : IEmailService
                     <p style="font-size: 13px; color: #6b7280; margin-top: 8px;">Please present the QR code at the event entrance for ticket verification.</p>
                   </div>
                   <div style="text-align: center; margin: 24px 0;">
-                    <a href="{{ticketUrl}}" style="background-color: #4f46e5; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-size: 14px; font-weight: bold; display: inline-block;">View Digital Ticket</a>
+                    <a href="{{ticketUrl}}" style="{{BrandGradientStyle}} color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-size: 14px; font-weight: bold; display: inline-block;">View Digital Ticket</a>
                   </div>
                   <p style="font-size: 13px; color: #9ca3af; text-align: center; margin-top: 32px;">Eventify – Smart Event Ticketing</p>
                 </div>

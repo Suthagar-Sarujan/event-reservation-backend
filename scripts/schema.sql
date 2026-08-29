@@ -279,20 +279,22 @@ CREATE TABLE gate_user_assignments (
     INDEX idx_gua_user (user_id)
 ) ENGINE=InnoDB;
 
--- One row per scan attempt at a gate, success or failure, for audit - check-in
--- only (see scan_type - a single ENUM value today is intentional, not a
--- placeholder for check-out), mirroring booking_risk_assessments' role as an
--- append-only attempt log. booking_id/event_id are nullable because a scan
--- can fail before a booking was ever resolved (e.g. malformed code, or a
--- gate-permission rejection that never even looks one up).
+-- One row per scan attempt at a gate, success or failure, for audit -
+-- mirroring booking_risk_assessments' role as an append-only attempt log.
+-- booking_id/event_id are nullable because a scan can fail before a booking
+-- was ever resolved (e.g. malformed code, or a gate-permission rejection
+-- that never even looks one up). gate_id is nullable for the same reason on
+-- the gate side: a request can name a gate id that doesn't exist at all
+-- (stale client state, forged request), and the row still needs to be
+-- logged without violating the FK to a row that isn't there.
 CREATE TABLE gate_scan_histories (
     scan_id             BIGINT AUTO_INCREMENT PRIMARY KEY,
-    gate_id             INT NOT NULL,
+    gate_id             INT NULL,
     scanned_by_user_id  INT NOT NULL,
     booking_id          INT NULL,
     scanned_code        VARCHAR(255) NOT NULL,  -- raw scanned text, kept for audit even on failure
     event_id            BIGINT NULL,
-    scan_type           ENUM('checkin') NOT NULL DEFAULT 'checkin',
+    scan_type           ENUM('checkin','checkout') NOT NULL DEFAULT 'checkin',
     status               ENUM('success','failed') NOT NULL,
     failure_reason        VARCHAR(500) NULL,     -- human-readable message text, NULL on success
     scanned_at             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

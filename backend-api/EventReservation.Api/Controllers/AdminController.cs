@@ -40,7 +40,7 @@ public class AdminController : ControllerBase
         var status = await _adminService.UpdateUserRoleAsync(id, CurrentUserId, request.Role);
         return status switch
         {
-            AdminRoleUpdateStatus.InvalidRole => BadRequest(new { message = "Role must be 'customer', 'organizer', or 'admin'." }),
+            AdminRoleUpdateStatus.InvalidRole => BadRequest(new { message = "Role must be 'customer', 'organizer', 'admin', or 'gateuser'." }),
             AdminRoleUpdateStatus.CantRemoveOwnAdmin => BadRequest(new { message = "You can't remove your own admin access." }),
             AdminRoleUpdateStatus.UserNotFound => NotFound(),
             _ => NoContent(),

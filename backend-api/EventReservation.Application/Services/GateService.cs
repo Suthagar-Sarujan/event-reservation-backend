@@ -47,7 +47,13 @@ public class GateService : IGateService
         var gate = await _gates.GetByIdAsync(gateId);
         if (gate is null || gate.Status != GateStatus.Active || !await _gates.IsUserAssignedToGateAsync(gateUserId, gateId))
         {
-            return await FailAsync(gateId, gateUserId, code, null, eventId, scanType, UnauthorizedGateMessage);
+            // gate?.GateId, not gateId, and null instead of the request's
+            // eventId: nothing has been confirmed to exist yet at this point,
+            // and logging an unverified client-supplied id would violate the
+            // FK to a row that may not exist, crashing the request instead of
+            // returning a clean rejection. Same reasoning applies to every
+            // other FailAsync call below where no booking has been resolved.
+            return await FailAsync(gate?.GateId, gateUserId, code, null, null, scanType, UnauthorizedGateMessage);
         }
 
         var trimmedCode = code.Trim();
@@ -57,13 +63,13 @@ public class GateService : IGateService
         {
             if (!_qr.TryReadBookingId(trimmedCode, out var bookingId))
             {
-                return await FailAsync(gateId, gateUserId, trimmedCode, null, eventId, scanType, InvalidTicketMessage);
+                return await FailAsync(gateId, gateUserId, trimmedCode, null, null, scanType, InvalidTicketMessage);
             }
 
             booking = await _bookings.GetForVerificationAsync(bookingId);
             if (booking is null)
             {
-                return await FailAsync(gateId, gateUserId, trimmedCode, null, eventId, scanType, TicketNotFoundMessage);
+                return await FailAsync(gateId, gateUserId, trimmedCode, null, null, scanType, TicketNotFoundMessage);
             }
 
             if (!_qr.TryValidateToken(trimmedCode, booking.BookingReference, out _))
@@ -79,7 +85,7 @@ public class GateService : IGateService
             booking = await _bookings.GetForVerificationByReferenceAsync(trimmedCode);
             if (booking is null)
             {
-                return await FailAsync(gateId, gateUserId, trimmedCode, null, eventId, scanType, TicketNotFoundMessage);
+                return await FailAsync(gateId, gateUserId, trimmedCode, null, null, scanType, TicketNotFoundMessage);
             }
         }
 
@@ -168,7 +174,7 @@ public class GateService : IGateService
     /// attempt and returns the resulting DTO. Every rejection path funnels
     /// through here so logging can never be accidentally skipped on one branch.
     /// </summary>
-    private async Task<GateScanResultDto> FailAsync(int gateId, int gateUserId, string scannedCode, int? bookingId, long? eventId, GateScanType scanType, string message, Booking? booking = null)
+    private async Task<GateScanResultDto> FailAsync(int? gateId, int gateUserId, string scannedCode, int? bookingId, long? eventId, GateScanType scanType, string message, Booking? booking = null)
     {
         var scannedAt = DateTime.UtcNow;
         await _gateScans.LogAsync(new GateScanHistory

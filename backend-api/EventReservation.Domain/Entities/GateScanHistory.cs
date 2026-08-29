@@ -17,12 +17,15 @@ public enum GateScanStatus
 /// mirrors BookingRiskAssessment's role as an append-only attempt log.
 /// BookingId/EventId are nullable because a scan can fail before a booking
 /// was ever resolved (e.g. malformed code, or a gate-permission rejection
-/// that never even looks up a booking).
+/// that never even looks up a booking). GateId is nullable for the same
+/// reason on the gate side: a scan request can name a gate id that doesn't
+/// exist at all (stale client state, forged request), and the row still
+/// needs to be logged without violating the FK to a row that isn't there.
 /// </summary>
 public class GateScanHistory
 {
     public long ScanId { get; set; }
-    public int GateId { get; set; }
+    public int? GateId { get; set; }
     public int ScannedByUserId { get; set; }
     public int? BookingId { get; set; }
 

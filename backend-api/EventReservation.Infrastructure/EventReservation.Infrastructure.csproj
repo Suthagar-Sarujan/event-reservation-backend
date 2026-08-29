@@ -15,6 +15,12 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
+  <!-- Compiled into the assembly so SmtpEmailService can embed it in outgoing
+       emails without depending on a file path being present at runtime. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\logo-white.png" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="MailKit" Version="4.17.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.9" />
