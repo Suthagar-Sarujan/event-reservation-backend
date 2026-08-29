@@ -40,6 +40,7 @@ builder.Services.AddScoped<IFraudRepository, FraudRepository>();
 builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>();
 builder.Services.AddScoped<IGateRepository, GateRepository>();
 builder.Services.AddScoped<IGateScanRepository, GateScanRepository>();
+builder.Services.AddScoped<IPasswordResetTokenRepository, PasswordResetTokenRepository>();
 
 // Business logic layer
 builder.Services.AddScoped<IAuthService, AuthService>();

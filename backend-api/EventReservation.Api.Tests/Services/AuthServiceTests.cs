@@ -12,6 +12,8 @@ public class AuthServiceTests
 {
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IUserPreferenceRepository> _preferences = new();
+    private readonly Mock<IPasswordResetTokenRepository> _resetTokens = new();
+    private readonly Mock<IEmailService> _email = new();
     private readonly AuthService _sut;
 
     private readonly Mock<IJwtTokenService> _jwt = new();
@@ -20,7 +22,8 @@ public class AuthServiceTests
     {
         _jwt.Setup(j => j.GenerateToken(It.IsAny<User>())).Returns("fake-jwt-token");
         _preferences.Setup(p => p.ExistsAsync(It.IsAny<int>())).ReturnsAsync(false);
-        _sut = new AuthService(_users.Object, _preferences.Object, _jwt.Object);
+        _email.Setup(e => e.SendPasswordResetAsync(It.IsAny<int>(), It.IsAny<string>())).ReturnsAsync(true);
+        _sut = new AuthService(_users.Object, _preferences.Object, _resetTokens.Object, _email.Object, _jwt.Object);
     }
 
     [Fact]
@@ -97,5 +100,119 @@ public class AuthServiceTests
         var result = await _sut.LoginAsync(new LoginRequest("nobody@example.com", "whatever"));
 
         Assert.Equal(AuthStatus.InvalidCredentials, result.Status);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordAsync_WithKnownEmail_InvalidatesPriorTokensCreatesNewOneAndSendsEmail()
+    {
+        var user = new User { UserId = 7, Email = "jane@example.com", FullName = "Jane Doe" };
+        _users.Setup(r => r.GetByEmailAsync("jane@example.com")).ReturnsAsync(user);
+
+        PasswordResetToken? added = null;
+        _resetTokens.Setup(r => r.AddAsync(It.IsAny<PasswordResetToken>()))
+            .Callback<PasswordResetToken>(t => added = t)
+            .Returns(Task.CompletedTask);
+
+        await _sut.ForgotPasswordAsync("Jane@Example.com"); // mixed case - must still normalize to match GetByEmailAsync setup
+
+        _resetTokens.Verify(r => r.InvalidateActiveTokensForUserAsync(7), Times.Once);
+        Assert.NotNull(added);
+        Assert.Equal(7, added!.UserId);
+        Assert.False(string.IsNullOrWhiteSpace(added.TokenHash));
+        Assert.True(added.ExpiresAt > DateTime.UtcNow.AddMinutes(14) && added.ExpiresAt <= DateTime.UtcNow.AddMinutes(15));
+        _email.Verify(e => e.SendPasswordResetAsync(7, It.Is<string>(t => !string.IsNullOrWhiteSpace(t))), Times.Once);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordAsync_WithUnknownEmail_DoesNothingButStillCompletes()
+    {
+        _users.Setup(r => r.GetByEmailAsync(It.IsAny<string>())).ReturnsAsync((User?)null);
+
+        await _sut.ForgotPasswordAsync("nobody@example.com");
+
+        _resetTokens.Verify(r => r.InvalidateActiveTokensForUserAsync(It.IsAny<int>()), Times.Never);
+        _resetTokens.Verify(r => r.AddAsync(It.IsAny<PasswordResetToken>()), Times.Never);
+        _email.Verify(e => e.SendPasswordResetAsync(It.IsAny<int>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordThenResetPassword_FullRoundTrip_ChangesPasswordAndConsumesToken()
+    {
+        var user = new User { UserId = 7, Email = "jane@example.com", FullName = "Jane Doe", PasswordHash = BCrypt.Net.BCrypt.HashPassword("old-password") };
+        _users.Setup(r => r.GetByEmailAsync("jane@example.com")).ReturnsAsync(user);
+        _users.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(user);
+
+        PasswordResetToken? stored = null;
+        string? emailedRawToken = null;
+        _resetTokens.Setup(r => r.AddAsync(It.IsAny<PasswordResetToken>()))
+            .Callback<PasswordResetToken>(t => stored = t)
+            .Returns(Task.CompletedTask);
+        _email.Setup(e => e.SendPasswordResetAsync(7, It.IsAny<string>()))
+            .Callback<int, string>((_, rawToken) => emailedRawToken = rawToken)
+            .ReturnsAsync(true);
+
+        await _sut.ForgotPasswordAsync("jane@example.com");
+
+        Assert.NotNull(stored);
+        Assert.NotNull(emailedRawToken);
+        // The exact token emailed to the user must hash to the exact value
+        // stored - this is the real proof the generate/verify paths agree,
+        // not just that both ran.
+        _resetTokens.Setup(r => r.GetByTokenHashAsync(stored!.TokenHash)).ReturnsAsync(stored);
+
+        var status = await _sut.ResetPasswordAsync(emailedRawToken!, "NewPassword123!");
+
+        Assert.Equal(ResetPasswordStatus.Success, status);
+        Assert.True(BCrypt.Net.BCrypt.Verify("NewPassword123!", user.PasswordHash));
+        Assert.False(BCrypt.Net.BCrypt.Verify("old-password", user.PasswordHash));
+        _users.Verify(r => r.SaveChangesAsync(), Times.Once);
+        // Once from ForgotPasswordAsync (supersede any older link) and once
+        // from ResetPasswordAsync (consume this one + sweep stragglers) - by
+        // design, not a bug.
+        _resetTokens.Verify(r => r.InvalidateActiveTokensForUserAsync(7), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_WithUnknownToken_ReturnsInvalidOrExpiredWithoutChangingPassword()
+    {
+        _resetTokens.Setup(r => r.GetByTokenHashAsync(It.IsAny<string>())).ReturnsAsync((PasswordResetToken?)null);
+
+        var status = await _sut.ResetPasswordAsync("bm90LWEtcmVhbC10b2tlbg", "NewPassword123!");
+
+        Assert.Equal(ResetPasswordStatus.InvalidOrExpiredToken, status);
+        _users.Verify(r => r.SaveChangesAsync(), Times.Never);
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_WithExpiredToken_ReturnsInvalidOrExpired()
+    {
+        var expired = new PasswordResetToken { UserId = 7, TokenHash = "hash", ExpiresAt = DateTime.UtcNow.AddMinutes(-1), CreatedAt = DateTime.UtcNow.AddMinutes(-16) };
+        _resetTokens.Setup(r => r.GetByTokenHashAsync(It.IsAny<string>())).ReturnsAsync(expired);
+
+        var status = await _sut.ResetPasswordAsync("bm90LWEtcmVhbC10b2tlbg", "NewPassword123!");
+
+        Assert.Equal(ResetPasswordStatus.InvalidOrExpiredToken, status);
+        _users.Verify(r => r.GetByIdAsync(It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_WithAlreadyUsedToken_ReturnsInvalidOrExpired()
+    {
+        var used = new PasswordResetToken { UserId = 7, TokenHash = "hash", ExpiresAt = DateTime.UtcNow.AddMinutes(10), CreatedAt = DateTime.UtcNow, UsedAt = DateTime.UtcNow.AddMinutes(-1) };
+        _resetTokens.Setup(r => r.GetByTokenHashAsync(It.IsAny<string>())).ReturnsAsync(used);
+
+        var status = await _sut.ResetPasswordAsync("bm90LWEtcmVhbC10b2tlbg", "NewPassword123!");
+
+        Assert.Equal(ResetPasswordStatus.InvalidOrExpiredToken, status);
+        _users.Verify(r => r.GetByIdAsync(It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_WithMalformedToken_ReturnsInvalidOrExpiredWithoutQueryingRepository()
+    {
+        var status = await _sut.ResetPasswordAsync("not valid base64url!!", "NewPassword123!");
+
+        Assert.Equal(ResetPasswordStatus.InvalidOrExpiredToken, status);
+        _resetTokens.Verify(r => r.GetByTokenHashAsync(It.IsAny<string>()), Times.Never);
     }
 }

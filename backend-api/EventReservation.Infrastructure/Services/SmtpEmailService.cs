@@ -15,6 +15,7 @@ namespace EventReservation.Infrastructure.Services;
 public class SmtpEmailService : IEmailService
 {
     private readonly IBookingRepository _bookings;
+    private readonly IUserRepository _users;
     private readonly IQrCodeService _qr;
     private readonly SmtpOptions _options;
     private readonly IConfiguration _configuration;
@@ -22,12 +23,14 @@ public class SmtpEmailService : IEmailService
 
     public SmtpEmailService(
         IBookingRepository bookings,
+        IUserRepository users,
         IQrCodeService qr,
         IOptions<SmtpOptions> options,
         IConfiguration configuration,
         ILogger<SmtpEmailService> logger)
     {
         _bookings = bookings;
+        _users = users;
         _qr = qr;
         _options = options.Value;
         _configuration = configuration;
@@ -81,6 +84,74 @@ public class SmtpEmailService : IEmailService
             await _bookings.MarkEmailResultAsync(bookingId, BookingEmailStatus.Failed, booking.EmailAttempts + 1, null);
             return EmailSendResult.Failed;
         }
+    }
+
+    public async Task<bool> SendPasswordResetAsync(int userId, string rawToken)
+    {
+        var user = await _users.GetByIdAsync(userId);
+        if (user is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(_options.FromDisplayName, _options.FromAddress));
+            message.To.Add(new MailboxAddress(user.FullName, user.Email));
+            message.Subject = "Eventify – Reset Your Password";
+
+            var builder = new BodyBuilder();
+            var logoImage = builder.LinkedResources.Add("eventify-logo.png", LoadLogoBytes(), new ContentType("image", "png"));
+            logoImage.ContentId = MimeUtils.GenerateMessageId();
+
+            var frontendBaseUrl = _configuration["Frontend:BaseUrl"] ?? "http://localhost:4200";
+            // rawToken is already URL-safe (base64url, no padding) - no
+            // further encoding needed for the query string.
+            var resetUrl = $"{frontendBaseUrl.TrimEnd('/')}/reset-password?token={rawToken}";
+
+            builder.HtmlBody = BuildPasswordResetHtmlBody(user.FullName, logoImage.ContentId, resetUrl);
+            message.Body = builder.ToMessageBody();
+
+            using var client = new SmtpClient();
+            await client.ConnectAsync(_options.Host, _options.Port, SecureSocketOptions.StartTls);
+            await client.AuthenticateAsync(_options.User, _options.Password);
+            await client.SendAsync(message);
+            await client.DisconnectAsync(true);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // Never log rawToken or any password - only enough to find the
+            // failure in the logs, per the feature's explicit security rules.
+            _logger.LogError(ex, "Failed to send password reset email for user {UserId}", userId);
+            return false;
+        }
+    }
+
+    private static string BuildPasswordResetHtmlBody(string fullName, string logoContentId, string resetUrl)
+    {
+        return $$"""
+            <div style="font-family: Arial, Helvetica, sans-serif; background-color: #f4f4f7; padding: 24px;">
+              <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e5e5e5;">
+                <div style="{{BrandGradientStyle}} padding: 24px; text-align: center;">
+                  <img src="cid:{{logoContentId}}" alt="Eventify" style="height: 36px;" />
+                </div>
+                <div style="padding: 24px;">
+                  <p style="font-size: 16px; color: #111827;">Hi {{fullName}},</p>
+                  <p style="font-size: 15px; color: #374151;">We received a request to reset your Eventify account password.</p>
+                  <p style="font-size: 15px; color: #374151;">Click the button below to create a new password:</p>
+                  <div style="text-align: center; margin: 24px 0;">
+                    <a href="{{resetUrl}}" style="{{BrandGradientStyle}} color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-size: 14px; font-weight: bold; display: inline-block;">Reset Password</a>
+                  </div>
+                  <p style="font-size: 13px; color: #6b7280;">This password reset link will expire in 15 minutes and can only be used once.</p>
+                  <p style="font-size: 13px; color: #6b7280;">If you did not request a password reset, you can safely ignore this email.</p>
+                  <p style="font-size: 13px; color: #9ca3af; text-align: center; margin-top: 32px;">Eventify – Smart Event Ticketing</p>
+                </div>
+              </div>
+            </div>
+            """;
     }
 
     // Compiled into the assembly (see the EmbeddedResource item in the .csproj)

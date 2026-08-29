@@ -18,3 +18,7 @@ public record AuthResponse(string Token, int UserId, string FullName, string Ema
 public record UpdateThemeRequest([Required] string Theme);
 
 public record ThemeResponse(string Theme);
+
+public record ForgotPasswordRequest([Required, EmailAddress] string Email);
+
+public record ResetPasswordRequest([Required] string Token, [Required, MinLength(8)] string NewPassword);

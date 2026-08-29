@@ -14,6 +14,7 @@
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS password_reset_tokens;
 DROP TABLE IF EXISTS gate_scan_histories;
 DROP TABLE IF EXISTS gate_user_assignments;
 DROP TABLE IF EXISTS gates;
@@ -305,6 +306,23 @@ CREATE TABLE gate_scan_histories (
     INDEX idx_gsh_gate (gate_id),
     INDEX idx_gsh_status (status),
     INDEX idx_gsh_scanned_at (scanned_at)
+) ENGINE=InnoDB;
+
+-- One row per issued password-reset link. Only a SHA-256 hash of the raw
+-- token is ever stored - the raw token exists only in memory long enough to
+-- email it once. used_at is NULL until consumed (or swept as stale by a
+-- newer request/successful reset), after which it can never be reused
+-- regardless of expires_at.
+CREATE TABLE password_reset_tokens (
+    id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id      INT NOT NULL,
+    token_hash    VARCHAR(64) NOT NULL,  -- SHA-256 hex digest
+    expires_at     DATETIME NOT NULL,
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    used_at           DATETIME NULL,
+    CONSTRAINT fk_prt_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    UNIQUE INDEX idx_prt_token_hash (token_hash),
+    INDEX idx_prt_user (user_id)
 ) ENGINE=InnoDB;
 
 -- Reserve id space for organizer-created rows well above anything SeatGeek's

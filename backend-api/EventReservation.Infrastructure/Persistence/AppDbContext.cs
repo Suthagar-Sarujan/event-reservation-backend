@@ -21,6 +21,7 @@ public class AppDbContext : DbContext
     public DbSet<Gate> Gates => Set<Gate>();
     public DbSet<GateUserAssignment> GateUserAssignments => Set<GateUserAssignment>();
     public DbSet<GateScanHistory> GateScanHistories => Set<GateScanHistory>();
+    public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -308,6 +309,21 @@ public class AppDbContext : DbContext
             e.HasIndex(x => x.GateId);
             e.HasIndex(x => x.Status);
             e.HasIndex(x => x.ScannedAt);
+        });
+
+        modelBuilder.Entity<PasswordResetToken>(e =>
+        {
+            e.ToTable("password_reset_tokens");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.UserId).HasColumnName("user_id");
+            e.Property(x => x.TokenHash).HasColumnName("token_hash").HasMaxLength(64);
+            e.Property(x => x.ExpiresAt).HasColumnName("expires_at");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.Property(x => x.UsedAt).HasColumnName("used_at");
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.TokenHash).IsUnique();
+            e.HasIndex(x => x.UserId);
         });
     }
 }

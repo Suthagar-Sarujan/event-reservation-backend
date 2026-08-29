@@ -18,4 +18,12 @@ public interface IEmailService
     /// successful booking or a resend request with an unhandled exception.
     /// </summary>
     Task<EmailSendResult> SendBookingConfirmationAsync(int bookingId);
+
+    /// <summary>
+    /// Emails a password-reset link built from the given raw (unhashed) token.
+    /// The token is never logged or persisted by this method - it's already
+    /// been hashed for storage by the caller before this runs. Never throws;
+    /// returns false and logs (user id only) on any failure.
+    /// </summary>
+    Task<bool> SendPasswordResetAsync(int userId, string rawToken);
 }

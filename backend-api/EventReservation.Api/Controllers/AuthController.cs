@@ -41,6 +41,27 @@ public class AuthController : ControllerBase
         };
     }
 
+    // Always the same response regardless of whether the email matches an
+    // account - AuthService.ForgotPasswordAsync is the layer that actually
+    // knows which case it was and deliberately doesn't report back which.
+    [HttpPost("forgot-password")]
+    public async Task<ActionResult> ForgotPassword(ForgotPasswordRequest request)
+    {
+        await _auth.ForgotPasswordAsync(request.Email);
+        return Ok(new { message = "If an account exists for this email address, password reset instructions have been sent." });
+    }
+
+    [HttpPost("reset-password")]
+    public async Task<ActionResult> ResetPassword(ResetPasswordRequest request)
+    {
+        var status = await _auth.ResetPasswordAsync(request.Token, request.NewPassword);
+        return status switch
+        {
+            ResetPasswordStatus.InvalidOrExpiredToken => BadRequest(new { message = "This password reset link is invalid or has expired." }),
+            _ => NoContent(),
+        };
+    }
+
     // Theme is a per-account preference (not tied to any role), so any
     // authenticated user can update their own - stored server-side so it
     // follows them across devices/browsers, not just the current one.
