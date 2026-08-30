@@ -168,7 +168,13 @@ class ContentBasedRecommender:
             if re.search(rf"\b{re.escape(term_lower)}\b", haystack):
                 return term
             words = [w for w in re.split(r"[\s-]+", term_lower) if len(w) >= 3]
-            if any(re.search(rf"\b{re.escape(w)}\b", haystack) for w in words):
+            # Taxonomy labels are singular ("concert"), onboarding labels are
+            # often plural ("Music Concerts") - check the simple plural/singular
+            # variant too so "Concerts" still matches a "concert" taxonomy_name.
+            variants = set(words)
+            variants |= {w[:-1] for w in words if w.endswith("s") and len(w) > 3}
+            variants |= {w + "s" for w in words if not w.endswith("s")}
+            if any(re.search(rf"\b{re.escape(w)}\b", haystack) for w in variants):
                 return term
         return None
 
