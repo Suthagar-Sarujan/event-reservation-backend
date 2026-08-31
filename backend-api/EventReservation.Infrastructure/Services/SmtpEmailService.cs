@@ -136,7 +136,7 @@ public class SmtpEmailService : IEmailService
             <div style="font-family: Arial, Helvetica, sans-serif; background-color: #f4f4f7; padding: 24px;">
               <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e5e5e5;">
                 <div style="{{BrandGradientStyle}} padding: 24px; text-align: center;">
-                  <img src="cid:{{logoContentId}}" alt="Eventify" style="height: 36px;" />
+                  <img src="cid:{{logoContentId}}" alt="Eventify" style="height: 64px;" />
                 </div>
                 <div style="padding: 24px;">
                   <p style="font-size: 16px; color: #111827;">Hi {{fullName}},</p>
@@ -182,7 +182,7 @@ public class SmtpEmailService : IEmailService
             <div style="font-family: Arial, Helvetica, sans-serif; background-color: #f4f4f7; padding: 24px;">
               <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e5e5e5;">
                 <div style="{{BrandGradientStyle}} padding: 24px; text-align: center;">
-                  <img src="cid:{{logoContentId}}" alt="Eventify" style="height: 36px;" />
+                  <img src="cid:{{logoContentId}}" alt="Eventify" style="height: 64px;" />
                 </div>
                 <div style="padding: 24px;">
                   <p style="font-size: 16px; color: #111827;">Hi {{booking.User!.FullName}},</p>
